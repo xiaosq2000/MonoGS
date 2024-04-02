@@ -11,6 +11,7 @@ class Camera(nn.Module):
         uid,
         color,
         depth,
+        segmentation_map,
         gt_T,
         projection_matrix,
         fx,
@@ -35,6 +36,7 @@ class Camera(nn.Module):
 
         self.original_image = color
         self.depth = depth
+        self.segmentation_map = segmentation_map
         self.grad_mask = None
 
         self.fx = fx
@@ -63,24 +65,45 @@ class Camera(nn.Module):
         self.projection_matrix = projection_matrix.to(device=device)
 
     @staticmethod
-    def init_from_dataset(dataset, idx, projection_matrix):
-        gt_color, gt_depth, gt_pose = dataset[idx]
-        return Camera(
-            idx,
-            gt_color,
-            gt_depth,
-            gt_pose,
-            projection_matrix,
-            dataset.fx,
-            dataset.fy,
-            dataset.cx,
-            dataset.cy,
-            dataset.fovx,
-            dataset.fovy,
-            dataset.height,
-            dataset.width,
-            device=dataset.device,
-        )
+    def init_from_dataset(dataset, is_semantic, idx, projection_matrix):
+        if is_semantic:
+            gt_color, gt_depth, gt_segmentation_map, gt_pose = dataset[idx]
+            return Camera(
+                idx,
+                gt_color,
+                gt_depth,
+                gt_segmentation_map,
+                gt_pose,
+                projection_matrix,
+                dataset.fx,
+                dataset.fy,
+                dataset.cx,
+                dataset.cy,
+                dataset.fovx,
+                dataset.fovy,
+                dataset.height,
+                dataset.width,
+                device=dataset.device,
+            )
+        else:
+            gt_color, gt_depth, gt_pose = dataset[idx]
+            return Camera(
+                idx,
+                gt_color,
+                gt_depth,
+                None,
+                gt_pose,
+                projection_matrix,
+                dataset.fx,
+                dataset.fy,
+                dataset.cx,
+                dataset.cy,
+                dataset.fovx,
+                dataset.fovy,
+                dataset.height,
+                dataset.width,
+                device=dataset.device,
+            )
 
     @staticmethod
     def init_from_gui(uid, T, FoVx, FoVy, fx, fy, cx, cy, H, W):
@@ -88,7 +111,20 @@ class Camera(nn.Module):
             znear=0.01, zfar=100.0, fx=fx, fy=fy, cx=cx, cy=cy, W=W, H=H
         ).transpose(0, 1)
         return Camera(
-            uid, None, None, T, projection_matrix, fx, fy, cx, cy, FoVx, FoVy, H, W
+            uid,
+            None,
+            None,
+            None,
+            T,
+            projection_matrix,
+            fx,
+            fy,
+            cx,
+            cy,
+            FoVx,
+            FoVy,
+            H,
+            W,
         )
 
     @property

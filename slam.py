@@ -42,6 +42,7 @@ class SLAM:
 
         self.live_mode = self.config["Dataset"]["type"] == "realsense"
         self.monocular = self.config["Dataset"]["sensor_type"] == "monocular"
+        self.semantic = self.config["Dataset"]["semantic"]
         self.use_spherical_harmonics = self.config["Training"]["spherical_harmonics"]
         self.use_gui = self.config["Results"]["use_gui"]
         if self.live_mode:
@@ -68,6 +69,7 @@ class SLAM:
 
         self.config["Results"]["save_dir"] = save_dir
         self.config["Training"]["monocular"] = self.monocular
+        self.config["Training"]["semantic"] = self.semantic
 
         self.frontend = FrontEnd(self.config)
         self.backend = BackEnd(self.config)

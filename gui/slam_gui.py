@@ -186,6 +186,10 @@ class SLAM_GUI:
         self.elipsoid_chbox.checked = False
         chbox_tile_geometry.add_child(self.elipsoid_chbox)
 
+        self.segmentation_chbox = gui.Checkbox("Segmentation")
+        self.segmentation_chbox.checked = False
+        chbox_tile_geometry.add_child(self.segmentation_chbox)
+
         self.panel.add_child(chbox_tile_geometry)
 
         slider_tile = gui.Horiz(0.5 * em, gui.Margins(margin))
@@ -214,9 +218,11 @@ class SLAM_GUI:
 
         self.in_rgb_widget = gui.ImageWidget()
         self.in_depth_widget = gui.ImageWidget()
-        tab_info.add_child(gui.Label("Input Color/Depth"))
+        self.in_segmentation_widget = gui.ImageWidget()
+        tab_info.add_child(gui.Label("Input Color/Depth/Segmentation"))
         tab_info.add_child(self.in_rgb_widget)
         tab_info.add_child(self.in_depth_widget)
+        tab_info.add_child(self.in_segmentation_widget)
 
         tabs.add_tab("Info", tab_info)
         self.panel.add_child(tabs)
@@ -435,6 +441,16 @@ class SLAM_GUI:
             rgb = o3d.geometry.Image(rgb)
             self.in_rgb_widget.update_image(rgb)
 
+        if gaussian_packet.gtsegmentation is not None:
+            segmentation_map = (
+                torch.clamp(gaussian_packet.gtsegmentation, min=0, max=1.0) * 255
+            )
+            segmentation_map = (
+                segmentation_map.byte().permute(1, 2, 0).contiguous().cpu().numpy()
+            )
+            segmentation_map = o3d.geometry.Image(segmentation_map)
+            self.in_segmentation_widget.update_image(segmentation_map)
+
         if gaussian_packet.gtdepth is not None:
             depth = gaussian_packet.gtdepth
             depth = imgviz.depth2rgb(
@@ -636,6 +652,17 @@ class SLAM_GUI:
             cv2.flip(img, 0, img)
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
+        elif self.segmentation_chbox.checked:
+            # TODO
+            rgb = (
+                (torch.clamp(results["render"], min=0, max=1.0) * 255)
+                .byte()
+                .permute(1, 2, 0)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
+            render_img = o3d.geometry.Image(rgb)
         else:
             rgb = (
                 (torch.clamp(results["render"], min=0, max=1.0) * 255)

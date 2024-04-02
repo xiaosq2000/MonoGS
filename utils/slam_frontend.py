@@ -29,6 +29,7 @@ class FrontEnd(mp.Process):
         self.initialized = False
         self.kf_indices = []
         self.monocular = config["Training"]["monocular"]
+        self.semantic = config["Training"]["semantic"]
         self.iteration_count = 0
         self.occ_aware_visibility = {}
         self.current_window = []
@@ -184,7 +185,8 @@ class FrontEnd(mp.Process):
                     gui_utils.GaussianPacket(
                         current_frame=viewpoint,
                         gtcolor=viewpoint.original_image,
-                        gtdepth=viewpoint.depth
+                        gtdepth=viewpoint.depth,
+                        gtsegmentation=viewpoint.segmentation_map
                         if not self.monocular
                         else np.zeros((viewpoint.image_height, viewpoint.image_width)),
                     )
@@ -372,7 +374,7 @@ class FrontEnd(mp.Process):
                     continue
 
                 viewpoint = Camera.init_from_dataset(
-                    self.dataset, cur_frame_idx, projection_matrix
+                    self.dataset, self.semantic, cur_frame_idx, projection_matrix
                 )
                 viewpoint.compute_grad_mask(self.config)
 

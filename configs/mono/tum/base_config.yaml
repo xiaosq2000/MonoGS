@@ -10,6 +10,7 @@ Results:
 Dataset:
   type: 'tum'
   sensor_type: 'monocular'
+  semantic: False
   pcd_downsample: 64
   pcd_downsample_init: 32
   adaptive_pointsize: True

@@ -9,9 +9,9 @@ Results:
   use_wandb: False
 
 Dataset:
-  type: 'tum'
+  type: 'tum_semantic'
   sensor_type: 'depth'
-  semantic: False
+  semantic: True
   pcd_downsample: 128
   pcd_downsample_init: 32
   adaptive_pointsize: True
