@@ -284,7 +284,7 @@ class BaseDataset(torch.utils.data.Dataset):
         self.args = args
         self.path = path
         self.config = config
-        self.device = "cuda:0"
+        self.device = "cuda"
         self.dtype = torch.float32
         self.num_imgs = 999999
 

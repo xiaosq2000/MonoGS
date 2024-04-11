@@ -41,7 +41,7 @@ class FrontEnd(mp.Process):
 
         self.gaussians = None
         self.cameras = dict()
-        self.device = "cuda:0"
+        self.device = "cuda"
         self.pause = False
 
     def set_hyperparams(self):
