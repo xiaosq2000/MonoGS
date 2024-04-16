@@ -15,6 +15,7 @@ import torch
 from diff_gaussian_rasterization import (
     GaussianRasterizationSettings,
     GaussianRasterizer,
+    # SemanticGaussianRasterizer,
 )
 
 from gaussian_splatting.scene.gaussian_model import GaussianModel
@@ -60,7 +61,7 @@ def render(
         image_width=int(viewpoint_camera.image_width),
         tanfovx=tanfovx,
         tanfovy=tanfovy,
-        bg=bg_color,
+        background_color=bg_color,
         scale_modifier=scaling_modifier,
         viewmatrix=viewpoint_camera.world_view_transform,
         projmatrix=viewpoint_camera.full_proj_transform,
@@ -72,6 +73,7 @@ def render(
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
+    # rasterizer = SemanticGaussianRasterizer(raster_settings=raster_settings)
 
     means3D = pc.get_xyz
     means2D = screenspace_points
