@@ -5,7 +5,7 @@ import torch
 import torch.multiprocessing as mp
 from tqdm import tqdm
 
-from gaussian_splatting.gaussian_renderer import render
+from gaussian_splatting.gaussian_renderer import render, GaussianModel
 from gaussian_splatting.utils.loss_utils import l1_loss, ssim
 from utils.logging_utils import Log
 from utils.multiprocessing_utils import clone_obj
@@ -65,9 +65,9 @@ class BackEnd(mp.Process):
             else False
         )
 
-    def add_next_kf(self, frame_idx, viewpoint, init=False, scale=2.0, depth_map=None):
+    def add_next_kf(self, frame_idx, camera, init=False, scale=2.0, depth_map=None):
         self.gaussians.extend_from_pcd_seq(
-            viewpoint, kf_id=frame_idx, init=init, scale=scale, depthmap=depth_map
+            camera, kf_id=frame_idx, init=init, scale=scale, depthmap=depth_map
         )
 
     def reset(self):
@@ -92,6 +92,7 @@ class BackEnd(mp.Process):
             )
             (
                 image,
+                segmentation_map,
                 viewspace_point_tensor,
                 visibility_filter,
                 radii,
@@ -100,6 +101,7 @@ class BackEnd(mp.Process):
                 n_touched,
             ) = (
                 render_pkg["render"],
+                render_pkg["render_semantics"],
                 render_pkg["viewspace_points"],
                 render_pkg["visibility_filter"],
                 render_pkg["radii"],
@@ -107,8 +109,15 @@ class BackEnd(mp.Process):
                 render_pkg["opacity"],
                 render_pkg["n_touched"],
             )
+
             loss_init = get_loss_mapping(
-                self.config, image, depth, viewpoint, opacity, initialization=True
+                self.config,
+                image,
+                segmentation_map,
+                depth,
+                viewpoint,
+                opacity,
+                initialization=True,
             )
             loss_init.backward()
 
@@ -174,6 +183,7 @@ class BackEnd(mp.Process):
                 )
                 (
                     image,
+                    segmentation_map,
                     viewspace_point_tensor,
                     visibility_filter,
                     radii,
@@ -182,6 +192,7 @@ class BackEnd(mp.Process):
                     n_touched,
                 ) = (
                     render_pkg["render"],
+                    render_pkg["render_semantics"],
                     render_pkg["viewspace_points"],
                     render_pkg["visibility_filter"],
                     render_pkg["radii"],
@@ -191,8 +202,9 @@ class BackEnd(mp.Process):
                 )
 
                 loss_mapping += get_loss_mapping(
-                    self.config, image, depth, viewpoint, opacity
+                    self.config, image, segmentation_map, depth, viewpoint, opacity
                 )
+
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
                 visibility_filter_acm.append(visibility_filter)
                 radii_acm.append(radii)
@@ -205,6 +217,7 @@ class BackEnd(mp.Process):
                 )
                 (
                     image,
+                    segmentation_map,
                     viewspace_point_tensor,
                     visibility_filter,
                     radii,
@@ -213,6 +226,7 @@ class BackEnd(mp.Process):
                     n_touched,
                 ) = (
                     render_pkg["render"],
+                    render_pkg["render_semantics"],
                     render_pkg["viewspace_points"],
                     render_pkg["visibility_filter"],
                     render_pkg["radii"],
@@ -221,7 +235,7 @@ class BackEnd(mp.Process):
                     render_pkg["n_touched"],
                 )
                 loss_mapping += get_loss_mapping(
-                    self.config, image, depth, viewpoint, opacity
+                    self.config, image, segmentation_map, depth, viewpoint, opacity
                 )
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
                 visibility_filter_acm.append(visibility_filter)

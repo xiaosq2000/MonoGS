@@ -88,14 +88,26 @@ def get_loss_tracking_rgbd(
     return alpha * l1_rgb + (1 - alpha) * l1_depth.mean()
 
 
-def get_loss_mapping(config, image, depth, viewpoint, opacity, initialization=False):
+def get_loss_mapping(
+    config, image, segmentation_map, depth, viewpoint, opacity, initialization=False
+):
     if initialization:
         image_ab = image
     else:
         image_ab = (torch.exp(viewpoint.exposure_a)) * image + viewpoint.exposure_b
+
+    loss = 0
     if config["Training"]["monocular"]:
-        return get_loss_mapping_rgb(config, image_ab, depth, viewpoint)
-    return get_loss_mapping_rgbd(config, image_ab, depth, viewpoint)
+        loss = get_loss_mapping_rgb(config, image_ab, depth, viewpoint)
+    else:
+        if config["Training"]["semantic"]:
+            loss = get_loss_mapping_semantic_rgbd(
+                config, image_ab, segmentation_map, depth, viewpoint
+            )
+        else:
+            loss = get_loss_mapping_rgbd(config, image_ab, depth, viewpoint)
+
+    return loss
 
 
 def get_loss_mapping_rgb(config, image, depth, viewpoint):
@@ -126,6 +138,39 @@ def get_loss_mapping_rgbd(config, image, depth, viewpoint, initialization=False)
     l1_depth = torch.abs(depth * depth_pixel_mask - gt_depth * depth_pixel_mask)
 
     return alpha * l1_rgb.mean() + (1 - alpha) * l1_depth.mean()
+
+
+def get_loss_mapping_semantic_rgbd(
+    config, image, segmentation_map, depth, viewpoint, initialization=False
+):
+    # alpha = config["Training"]["alpha"] if "alpha" in config["Training"] else 0.95
+    # beta = config["Training"]["beta"] if "beta" in config["Training"] else 0.15
+    alpha = 0.05
+    beta = 0.90
+    rgb_boundary_threshold = config["Training"]["rgb_boundary_threshold"]
+
+    gt_image = viewpoint.original_image.cuda()
+    gt_segmentation_map = viewpoint.segmentation_map.cuda()
+    gt_depth = torch.from_numpy(viewpoint.depth).to(
+        dtype=torch.float32, device=image.device
+    )[None]
+    rgb_pixel_mask = (gt_image.sum(dim=0) > rgb_boundary_threshold).view(*depth.shape)
+    # TODO
+    segmentation_pixel_mask = (gt_segmentation_map.sum(dim=0) > 0).view(*depth.shape)
+    depth_pixel_mask = (gt_depth > 0.01).view(*depth.shape)
+
+    l1_rgb = torch.abs(image * rgb_pixel_mask - gt_image * rgb_pixel_mask)
+    l1_semantics = torch.abs(
+        segmentation_map * segmentation_pixel_mask
+        - gt_segmentation_map * segmentation_pixel_mask
+    )
+    l1_depth = torch.abs(depth * depth_pixel_mask - gt_depth * depth_pixel_mask)
+
+    return (
+        alpha * l1_rgb.mean()
+        + beta * l1_semantics.mean()
+        + (1 - alpha - beta) * l1_depth.mean()
+    )
 
 
 def get_median_depth(depth, opacity=None, mask=None, return_std=False):

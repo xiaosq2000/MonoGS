@@ -190,6 +190,10 @@ class SLAM_GUI:
         self.segmentation_chbox.checked = False
         chbox_tile_geometry.add_child(self.segmentation_chbox)
 
+        self.elipsoid_segmentation_chbox = gui.Checkbox("Semantic Elipsoid Shader")
+        self.elipsoid_segmentation_chbox.checked = False
+        chbox_tile_geometry.add_child(self.elipsoid_segmentation_chbox)
+
         self.panel.add_child(chbox_tile_geometry)
 
         slider_tile = gui.Horiz(0.5 * em, gui.Margins(margin))
@@ -653,16 +657,56 @@ class SLAM_GUI:
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
         elif self.segmentation_chbox.checked:
-            # TODO
-            rgb = (
-                (torch.clamp(results["render"], min=0, max=1.0) * 255)
+            segmentation_map = (
+                (torch.clamp(results["render_semantics"], min=0, max=1.0) * 255)
                 .byte()
                 .permute(1, 2, 0)
                 .contiguous()
                 .cpu()
                 .numpy()
             )
-            render_img = o3d.geometry.Image(rgb)
+            render_img = o3d.geometry.Image(segmentation_map)
+        elif self.elipsoid_segmentation_chbox.checked:
+            if self.gaussian_cur is None:
+                return
+            glfw.poll_events()
+            gl.glClearColor(0, 0, 0, 1.0)
+            gl.glClear(
+                gl.GL_COLOR_BUFFER_BIT
+                | gl.GL_DEPTH_BUFFER_BIT
+                | gl.GL_STENCIL_BUFFER_BIT
+            )
+
+            w = int(self.window.size.width * self.widget3d_width_ratio)
+            glfw.set_window_size(self.window_gl, w, self.window.size.height)
+            self.g_camera.fovy = current_cam.FoVy
+            self.g_camera.update_resolution(self.window.size.height, w)
+            self.g_renderer.set_render_reso(w, self.window.size.height)
+            frustum = create_frustum(
+                np.linalg.inv(cv_gl @ self.widget3d.scene.camera.get_view_matrix())
+            )
+
+            self.g_camera.position = frustum.eye.astype(np.float32)
+            self.g_camera.target = frustum.center.astype(np.float32)
+            self.g_camera.up = frustum.up.astype(np.float32)
+
+            self.gaussians_gl.xyz = self.gaussian_cur.get_xyz.cpu().numpy()
+            self.gaussians_gl.opacity = self.gaussian_cur.get_opacity.cpu().numpy()
+            self.gaussians_gl.scale = self.gaussian_cur.get_scaling.cpu().numpy()
+            self.gaussians_gl.rot = self.gaussian_cur.get_rotation.cpu().numpy()
+            self.gaussians_gl.sh = self.gaussian_cur.get_semantic_features.cpu().numpy()[:, 0, :]
+
+            self.update_activated_renderer_state(self.gaussians_gl)
+            self.g_renderer.sort_and_update(self.g_camera)
+            width, height = glfw.get_framebuffer_size(self.window_gl)
+            self.g_renderer.draw()
+            bufferdata = gl.glReadPixels(
+                0, 0, width, height, gl.GL_RGB, gl.GL_UNSIGNED_BYTE
+            )
+            img = np.frombuffer(bufferdata, np.uint8, -1).reshape(height, width, 3)
+            cv2.flip(img, 0, img)
+            render_img = o3d.geometry.Image(img)
+            glfw.swap_buffers(self.window_gl)
         else:
             rgb = (
                 (torch.clamp(results["render"], min=0, max=1.0) * 255)

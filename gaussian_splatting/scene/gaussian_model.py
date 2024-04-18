@@ -36,9 +36,12 @@ class GaussianModel:
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree
 
+        self.is_semantic = True
+
         self._xyz = torch.empty(0, device="cuda")
         self._features_dc = torch.empty(0, device="cuda")
         self._features_rest = torch.empty(0, device="cuda")
+        self._features_semantics = torch.empty(0, device="cuda")
         self._scaling = torch.empty(0, device="cuda")
         self._rotation = torch.empty(0, device="cuda")
         self._opacity = torch.empty(0, device="cuda")
@@ -92,6 +95,10 @@ class GaussianModel:
         return torch.cat((features_dc, features_rest), dim=1)
 
     @property
+    def get_semantic_features(self):
+        return self._features_semantics
+
+    @property
     def get_opacity(self):
         return self.opacity_activation(self._opacity)
 
@@ -104,14 +111,27 @@ class GaussianModel:
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
 
-    def create_pcd_from_image(self, cam_info, init=False, scale=2.0, depthmap=None):
+    def create_pcd(self, cam_info, init=False, scale=2.0, depthmap=None):
         cam = cam_info
         image_ab = (torch.exp(cam.exposure_a)) * cam.original_image + cam.exposure_b
         image_ab = torch.clamp(image_ab, 0.0, 1.0)
+        segmentation_map_ab = (
+            torch.exp(cam.exposure_a)
+        ) * cam.segmentation_map + cam.exposure_b
+        segmentation_map_ab = torch.clamp(segmentation_map_ab, 0.0, 1.0)
         rgb_raw = (image_ab * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
+        segmentation_map_raw = (
+            (segmentation_map_ab * 255)
+            .byte()
+            .permute(1, 2, 0)
+            .contiguous()
+            .cpu()
+            .numpy()
+        )
 
         if depthmap is not None:
             rgb = o3d.geometry.Image(rgb_raw.astype(np.uint8))
+            segmentation_map = o3d.geometry.Image(segmentation_map_raw.astype(np.uint8))
             depth = o3d.geometry.Image(depthmap.astype(np.float32))
         else:
             depth_raw = cam.depth
@@ -126,11 +146,16 @@ class GaussianModel:
                 ) * scale
 
             rgb = o3d.geometry.Image(rgb_raw.astype(np.uint8))
+            segmentation_map = o3d.geometry.Image(segmentation_map_raw.astype(np.uint8))
             depth = o3d.geometry.Image(depth_raw.astype(np.float32))
 
-        return self.create_pcd_from_image_and_depth(cam, rgb, depth, init)
+        return self.create_pcd_from_semantic_image_and_depth(
+            cam, rgb, segmentation_map, depth, init
+        )
 
-    def create_pcd_from_image_and_depth(self, cam, rgb, depth, init=False):
+    def create_pcd_from_semantic_image_and_depth(
+        self, cam, rgb, segmentation_map, depth, init=False
+    ):
         if init:
             downsample_factor = self.config["Dataset"]["pcd_downsample_init"]
         else:
@@ -139,6 +164,9 @@ class GaussianModel:
         if "adaptive_pointsize" in self.config["Dataset"]:
             if self.config["Dataset"]["adaptive_pointsize"]:
                 point_size = min(0.05, point_size * np.median(depth))
+
+        W2C = getWorld2View2(cam.R, cam.T).cpu().numpy()
+
         rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
             rgb,
             depth,
@@ -146,9 +174,7 @@ class GaussianModel:
             depth_trunc=100.0,
             convert_rgb_to_intensity=False,
         )
-
-        W2C = getWorld2View2(cam.R, cam.T).cpu().numpy()
-        pcd_tmp = o3d.geometry.PointCloud.create_from_rgbd_image(
+        rgbd_pcd_tmp = o3d.geometry.PointCloud.create_from_rgbd_image(
             rgbd,
             o3d.camera.PinholeCameraIntrinsic(
                 cam.image_width,
@@ -161,17 +187,54 @@ class GaussianModel:
             extrinsic=W2C,
             project_valid_depth_only=True,
         )
-        pcd_tmp = pcd_tmp.random_down_sample(1.0 / downsample_factor)
-        new_xyz = np.asarray(pcd_tmp.points)
-        new_rgb = np.asarray(pcd_tmp.colors)
+        rgbd_pcd_tmp = rgbd_pcd_tmp.random_down_sample(1.0 / downsample_factor)
+
+        semantic_rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+            segmentation_map,
+            depth,
+            depth_scale=1.0,
+            depth_trunc=100.0,
+            convert_rgb_to_intensity=False,
+        )
+        semantic_rgbd_pcd_tmp = o3d.geometry.PointCloud.create_from_rgbd_image(
+            semantic_rgbd,
+            o3d.camera.PinholeCameraIntrinsic(
+                cam.image_width,
+                cam.image_height,
+                cam.fx,
+                cam.fy,
+                cam.cx,
+                cam.cy,
+            ),
+            extrinsic=W2C,
+            project_valid_depth_only=True,
+        )
+        semantic_rgbd_pcd_tmp = semantic_rgbd_pcd_tmp.random_down_sample(
+            1.0 / downsample_factor
+        )
+
+        new_xyz = np.asarray(rgbd_pcd_tmp.points)
+        new_rgb = np.asarray(rgbd_pcd_tmp.colors)
+        new_segmentation_map = np.asarray(semantic_rgbd_pcd_tmp.colors)
 
         pcd = BasicPointCloud(
             points=new_xyz, colors=new_rgb, normals=np.zeros((new_xyz.shape[0], 3))
         )
         self.ply_input = pcd
 
-        fused_point_cloud = torch.from_numpy(np.asarray(pcd.points)).float().cuda()
+        semantic_pcd = BasicPointCloud(
+            points=new_xyz,
+            colors=new_segmentation_map,
+            normals=np.zeros((new_xyz.shape[0], 3)),
+        )
+        self.semantic_ply_input = semantic_pcd
+
+        fused_rgbd_point_cloud = torch.from_numpy(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.from_numpy(np.asarray(pcd.colors)).float().cuda())
+        # TODO: No need to use SH to encode semantics
+        fused_semantics = RGB2SH(
+            torch.from_numpy(np.asarray(semantic_pcd.colors)).float().cuda()
+        )
         features = (
             torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2))
             .float()
@@ -179,6 +242,14 @@ class GaussianModel:
         )
         features[:, :3, 0] = fused_color
         features[:, 3:, 1:] = 0.0
+
+        semantic_features = (
+            torch.zeros((fused_semantics.shape[0], 3, (self.max_sh_degree + 1) ** 2))
+            .float()
+            .cuda()
+        )
+        semantic_features[:, :3, 0] = fused_semantics
+        semantic_features[:, 3:, 1:] = 0.0
 
         dist2 = (
             torch.clamp_min(
@@ -191,22 +262,36 @@ class GaussianModel:
         if not self.isotropic:
             scales = scales.repeat(1, 3)
 
-        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots = torch.zeros((fused_rgbd_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
         opacities = inverse_sigmoid(
             0.5
             * torch.ones(
-                (fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"
+                (fused_rgbd_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"
             )
         )
 
-        return fused_point_cloud, features, scales, rots, opacities
+        return (
+            fused_rgbd_point_cloud,
+            features,
+            semantic_features,
+            scales,
+            rots,
+            opacities,
+        )
 
     def init_lr(self, spatial_lr_scale):
         self.spatial_lr_scale = spatial_lr_scale
 
     def extend_from_pcd(
-        self, fused_point_cloud, features, scales, rots, opacities, kf_id
+        self,
+        fused_point_cloud,
+        features,
+        semantic_features,
+        scales,
+        rots,
+        opacities,
+        kf_id,
     ):
         new_xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
         new_features_dc = nn.Parameter(
@@ -214,6 +299,9 @@ class GaussianModel:
         )
         new_features_rest = nn.Parameter(
             features[:, :, 1:].transpose(1, 2).contiguous().requires_grad_(True)
+        )
+        new_features_semantics = nn.Parameter(
+            semantic_features.transpose(1, 2).contiguous().requires_grad_(True)
         )
         new_scaling = nn.Parameter(scales.requires_grad_(True))
         new_rotation = nn.Parameter(rots.requires_grad_(True))
@@ -225,6 +313,7 @@ class GaussianModel:
             new_xyz,
             new_features_dc,
             new_features_rest,
+            new_features_semantics,
             new_opacity,
             new_scaling,
             new_rotation,
@@ -233,13 +322,19 @@ class GaussianModel:
         )
 
     def extend_from_pcd_seq(
-        self, cam_info, kf_id=-1, init=False, scale=2.0, depthmap=None
+        self, camera, kf_id=-1, init=False, scale=2.0, depthmap=None
     ):
-        fused_point_cloud, features, scales, rots, opacities = (
-            self.create_pcd_from_image(cam_info, init, scale=scale, depthmap=depthmap)
+        fused_point_cloud, features, semantic_features, scales, rots, opacities = (
+            self.create_pcd(camera, init, scale=scale, depthmap=depthmap)
         )
         self.extend_from_pcd(
-            fused_point_cloud, features, scales, rots, opacities, kf_id
+            fused_point_cloud,
+            features,
+            semantic_features,
+            scales,
+            rots,
+            opacities,
+            kf_id,
         )
 
     def training_setup(self, training_args):
@@ -262,6 +357,11 @@ class GaussianModel:
                 "params": [self._features_rest],
                 "lr": training_args.feature_lr / 20.0,
                 "name": "f_rest",
+            },
+            {
+                "params": [self._features_semantics],
+                "lr": training_args.feature_lr,
+                "name": "f_semantics",
             },
             {
                 "params": [self._opacity],
@@ -316,6 +416,10 @@ class GaussianModel:
             l.append("f_dc_{}".format(i))
         for i in range(self._features_rest.shape[1] * self._features_rest.shape[2]):
             l.append("f_rest_{}".format(i))
+        for i in range(
+            self._features_semantics.shape[1] * self._features_semantics.shape[2]
+        ):
+            l.append("f_semantics_{}".format(i))
         l.append("opacity")
         for i in range(self._scaling.shape[1]):
             l.append("scale_{}".format(i))
@@ -344,6 +448,14 @@ class GaussianModel:
             .cpu()
             .numpy()
         )
+        f_semantics = (
+            self._features_semantics.detach()
+            .transpose(1, 2)
+            .flatten(start_dim=1)
+            .contiguous()
+            .cpu()
+            .numpy()
+        )
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
@@ -353,7 +465,8 @@ class GaussianModel:
         ]
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
         attributes = np.concatenate(
-            (xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1
+            (xyz, normals, f_dc, f_rest, f_semantics, opacities, scale, rotation),
+            axis=1,
         )
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, "vertex")
@@ -509,6 +622,7 @@ class GaussianModel:
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
+        self._features_semantics = optimizable_tensors["f_semantics"]
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -559,6 +673,7 @@ class GaussianModel:
         new_xyz,
         new_features_dc,
         new_features_rest,
+        new_features_semantics,
         new_opacities,
         new_scaling,
         new_rotation,
@@ -569,6 +684,7 @@ class GaussianModel:
             "xyz": new_xyz,
             "f_dc": new_features_dc,
             "f_rest": new_features_rest,
+            "f_semantics": new_features_semantics,
             "opacity": new_opacities,
             "scaling": new_scaling,
             "rotation": new_rotation,
@@ -578,6 +694,7 @@ class GaussianModel:
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
+        self._features_semantics = optimizable_tensors["f_semantics"]
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -615,6 +732,9 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask].repeat(N, 1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N, 1, 1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N, 1, 1)
+        new_features_semantics = self._features_semantics[selected_pts_mask].repeat(
+            N, 1, 1
+        )
         new_opacity = self._opacity[selected_pts_mask].repeat(N, 1)
 
         new_kf_id = self.unique_kfIDs[selected_pts_mask.cpu()].repeat(N)
@@ -624,6 +744,7 @@ class GaussianModel:
             new_xyz,
             new_features_dc,
             new_features_rest,
+            new_features_semantics,
             new_opacity,
             new_scaling,
             new_rotation,
@@ -654,6 +775,7 @@ class GaussianModel:
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
+        new_features_semantics = self._features_semantics[selected_pts_mask]
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
@@ -664,6 +786,7 @@ class GaussianModel:
             new_xyz,
             new_features_dc,
             new_features_rest,
+            new_features_semantics,
             new_opacities,
             new_scaling,
             new_rotation,
