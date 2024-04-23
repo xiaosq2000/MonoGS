@@ -165,14 +165,15 @@ class FrontEnd(mp.Process):
             render_pkg = render(
                 viewpoint, self.gaussians, self.pipeline_params, self.background
             )
-            image, depth, opacity = (
+            image, segmentation_map, depth, opacity = (
                 render_pkg["render"],
+                render_pkg["render_semantics"],
                 render_pkg["depth"],
                 render_pkg["opacity"],
             )
             pose_optimizer.zero_grad()
             loss_tracking = get_loss_tracking(
-                self.config, image, depth, opacity, viewpoint
+                self.config, image, segmentation_map, depth, opacity, viewpoint
             )
             loss_tracking.backward()
 
