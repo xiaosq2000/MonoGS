@@ -26,13 +26,11 @@ def evaluate_evo(poses_gt, poses_est, plot_dir, label, monocular=False):
     ## Plot
     traj_ref = PosePath3D(poses_se3=poses_gt)
     traj_est = PosePath3D(poses_se3=poses_est)
-    traj_est_aligned = trajectory.align_trajectory(
-        traj_est, traj_ref, correct_scale=monocular
-    )
+    traj_est.align(traj_ref, correct_scale=False)
 
     ## RMSE
     pose_relation = metrics.PoseRelation.translation_part
-    data = (traj_ref, traj_est_aligned)
+    data = (traj_ref, traj_est)
     ape_metric = metrics.APE(pose_relation)
     ape_metric.process_data(data)
     ape_stat = ape_metric.get_statistic(metrics.StatisticsType.rmse)
@@ -53,7 +51,7 @@ def evaluate_evo(poses_gt, poses_est, plot_dir, label, monocular=False):
     evo.tools.plot.traj(ax, plot_mode, traj_ref, "--", "gray", "gt")
     evo.tools.plot.traj_colormap(
         ax,
-        traj_est_aligned,
+        traj_est,
         ape_metric.error,
         plot_mode,
         min_map=ape_stats["min"],

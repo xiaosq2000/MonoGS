@@ -165,13 +165,18 @@ class FrontEnd(mp.Process):
             render_pkg = render(
                 viewpoint, self.gaussians, self.pipeline_params, self.background
             )
-            image, segmentation_map, depth, opacity = (
+            image, depth, opacity = (
                 render_pkg["render"],
-                render_pkg["render_semantics"],
                 render_pkg["depth"],
                 render_pkg["opacity"],
             )
+            if self.gaussians.is_semantic:
+                segmentation_map = render_pkg["render_semantics"]
+            else: 
+                segmentation_map = None
+
             pose_optimizer.zero_grad()
+
             loss_tracking = get_loss_tracking(
                 self.config, image, segmentation_map, depth, opacity, viewpoint
             )
@@ -182,16 +187,28 @@ class FrontEnd(mp.Process):
                 converged = update_pose(viewpoint)
 
             if tracking_itr % 10 == 0:
-                self.q_main2vis.put(
-                    gui_utils.GaussianPacket(
-                        current_frame=viewpoint,
-                        gtcolor=viewpoint.original_image,
-                        gtdepth=viewpoint.depth,
-                        gtsegmentation=viewpoint.segmentation_map
-                        if not self.monocular
-                        else np.zeros((viewpoint.image_height, viewpoint.image_width)),
+                if self.gaussians.is_semantic:
+                    self.q_main2vis.put(
+                        gui_utils.GaussianPacket(
+                            current_frame=viewpoint,
+                            gtcolor=viewpoint.original_image,
+                            gtdepth=viewpoint.depth,
+                            gtsegmentation=viewpoint.segmentation_map
+                            if not self.monocular
+                            else np.zeros((viewpoint.image_height, viewpoint.image_width)),
+                        )
                     )
-                )
+                else:
+                    self.q_main2vis.put(
+                        gui_utils.GaussianPacket(
+                            current_frame=viewpoint,
+                            gtcolor=viewpoint.original_image,
+                            gtdepth=viewpoint.depth,
+                            gtsegmentation=None
+                            if not self.monocular
+                            else np.zeros((viewpoint.image_height, viewpoint.image_width)),
+                        )
+                    )
             if converged:
                 break
 

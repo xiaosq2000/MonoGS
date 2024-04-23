@@ -322,6 +322,11 @@ def render(
     override_color=None,
     mask=None,
 ):
-    return _semantic_render(
-        viewpoint_camera, pc, pipe, bg_color, scaling_modifier, override_color, mask
-    )
+    if pc.is_semantic:
+        return _semantic_render(
+            viewpoint_camera, pc, pipe, bg_color, scaling_modifier, override_color, mask
+        )
+    else:
+        return _render(
+            viewpoint_camera, pc, pipe, bg_color, scaling_modifier, override_color, mask
+        )

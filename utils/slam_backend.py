@@ -17,7 +17,7 @@ class BackEnd(mp.Process):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.gaussians = None
+        self.gaussians: GaussianModel = None
         self.pipeline_params = None
         self.opt_params = None
         self.background = None
@@ -92,7 +92,6 @@ class BackEnd(mp.Process):
             )
             (
                 image,
-                segmentation_map,
                 viewspace_point_tensor,
                 visibility_filter,
                 radii,
@@ -101,7 +100,6 @@ class BackEnd(mp.Process):
                 n_touched,
             ) = (
                 render_pkg["render"],
-                render_pkg["render_semantics"],
                 render_pkg["viewspace_points"],
                 render_pkg["visibility_filter"],
                 render_pkg["radii"],
@@ -109,6 +107,11 @@ class BackEnd(mp.Process):
                 render_pkg["opacity"],
                 render_pkg["n_touched"],
             )
+
+            if self.gaussians.is_semantic:
+                segmentation_map = render_pkg["render_semantics"]
+            else:
+                segmentation_map = None
 
             loss_init = get_loss_mapping(
                 self.config,
@@ -183,7 +186,6 @@ class BackEnd(mp.Process):
                 )
                 (
                     image,
-                    segmentation_map,
                     viewspace_point_tensor,
                     visibility_filter,
                     radii,
@@ -192,7 +194,6 @@ class BackEnd(mp.Process):
                     n_touched,
                 ) = (
                     render_pkg["render"],
-                    render_pkg["render_semantics"],
                     render_pkg["viewspace_points"],
                     render_pkg["visibility_filter"],
                     render_pkg["radii"],
@@ -200,6 +201,10 @@ class BackEnd(mp.Process):
                     render_pkg["opacity"],
                     render_pkg["n_touched"],
                 )
+                if self.gaussians.is_semantic:
+                    segmentation_map = render_pkg["render_semantics"]
+                else:
+                    segmentation_map = None
 
                 loss_mapping += get_loss_mapping(
                     self.config, image, segmentation_map, depth, viewpoint, opacity
@@ -217,7 +222,6 @@ class BackEnd(mp.Process):
                 )
                 (
                     image,
-                    segmentation_map,
                     viewspace_point_tensor,
                     visibility_filter,
                     radii,
@@ -226,7 +230,6 @@ class BackEnd(mp.Process):
                     n_touched,
                 ) = (
                     render_pkg["render"],
-                    render_pkg["render_semantics"],
                     render_pkg["viewspace_points"],
                     render_pkg["visibility_filter"],
                     render_pkg["radii"],
@@ -234,6 +237,11 @@ class BackEnd(mp.Process):
                     render_pkg["opacity"],
                     render_pkg["n_touched"],
                 )
+                if self.gaussians.is_semantic:
+                    segmentation_map = render_pkg["render_semantics"]
+                else:
+                    segmentation_map = None
+
                 loss_mapping += get_loss_mapping(
                     self.config, image, segmentation_map, depth, viewpoint, opacity
                 )

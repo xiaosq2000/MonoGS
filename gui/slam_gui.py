@@ -58,6 +58,7 @@ class SLAM_GUI:
             self.q_main2vis = params_gui.q_main2vis
             self.q_vis2main = params_gui.q_vis2main
             self.pipe = params_gui.pipe
+            self.is_semantic = params_gui.gaussians.is_semantic
 
         self.gaussian_nums = []
 
@@ -452,8 +453,13 @@ class SLAM_GUI:
             segmentation_map = (
                 segmentation_map.byte().permute(1, 2, 0).contiguous().cpu().numpy()
             )
-            segmentation_map = o3d.geometry.Image(segmentation_map)
-            self.in_segmentation_widget.update_image(segmentation_map)
+            print("Hello")
+            if self.is_semantic:
+                segmentation_map = o3d.geometry.Image(segmentation_map)
+                self.in_segmentation_widget.update_image(segmentation_map)
+            else: 
+                self.in_segmentation_widget.update_image(o3d.geometry.Image())
+
 
         if gaussian_packet.gtdepth is not None:
             depth = gaussian_packet.gtdepth
@@ -656,7 +662,7 @@ class SLAM_GUI:
             cv2.flip(img, 0, img)
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
-        elif self.segmentation_chbox.checked:
+        elif self.segmentation_chbox.checked and self.is_semantic:
             segmentation_map = (
                 (torch.clamp(results["render_semantics"], min=0, max=1.0) * 255)
                 .byte()
@@ -666,7 +672,7 @@ class SLAM_GUI:
                 .numpy()
             )
             render_img = o3d.geometry.Image(segmentation_map)
-        elif self.elipsoid_segmentation_chbox.checked:
+        elif self.elipsoid_segmentation_chbox.checked and self.is_semantic:
             if self.gaussian_cur is None:
                 return
             glfw.poll_events()
@@ -694,7 +700,9 @@ class SLAM_GUI:
             self.gaussians_gl.opacity = self.gaussian_cur.get_opacity.cpu().numpy()
             self.gaussians_gl.scale = self.gaussian_cur.get_scaling.cpu().numpy()
             self.gaussians_gl.rot = self.gaussian_cur.get_rotation.cpu().numpy()
-            self.gaussians_gl.sh = self.gaussian_cur.get_semantic_features.cpu().numpy()[:, 0, :]
+            self.gaussians_gl.sh = (
+                self.gaussian_cur.get_semantic_features.cpu().numpy()[:, 0, :]
+            )
 
             self.update_activated_renderer_state(self.gaussians_gl)
             self.g_renderer.sort_and_update(self.g_camera)

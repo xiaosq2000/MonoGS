@@ -29,14 +29,13 @@ from gaussian_splatting.utils.general_utils import (
 from gaussian_splatting.utils.graphics_utils import BasicPointCloud, getWorld2View2
 from gaussian_splatting.utils.sh_utils import RGB2SH
 from gaussian_splatting.utils.system_utils import mkdir_p
+from utils.camera_utils import Camera
 
 
 class GaussianModel:
     def __init__(self, sh_degree: int, config=None):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree
-
-        self.is_semantic = True
 
         self._xyz = torch.empty(0, device="cuda")
         self._features_dc = torch.empty(0, device="cuda")
@@ -64,6 +63,8 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
         self.config = config
+        self.is_semantic = self.config["Dataset"]["semantic"]
+
         self.ply_input = None
 
         self.isotropic = False
@@ -115,24 +116,28 @@ class GaussianModel:
         cam = cam_info
         image_ab = (torch.exp(cam.exposure_a)) * cam.original_image + cam.exposure_b
         image_ab = torch.clamp(image_ab, 0.0, 1.0)
-        segmentation_map_ab = (
-            torch.exp(cam.exposure_a)
-        ) * cam.segmentation_map + cam.exposure_b
-        segmentation_map_ab = torch.clamp(segmentation_map_ab, 0.0, 1.0)
         rgb_raw = (image_ab * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
-        segmentation_map_raw = (
-            (segmentation_map_ab * 255)
-            .byte()
-            .permute(1, 2, 0)
-            .contiguous()
-            .cpu()
-            .numpy()
-        )
+        if self.is_semantic:
+            segmentation_map_ab = (
+                torch.exp(cam.exposure_a)
+            ) * cam.segmentation_map + cam.exposure_b
+            segmentation_map_ab = torch.clamp(segmentation_map_ab, 0.0, 1.0)
+            segmentation_map_raw = (
+                (segmentation_map_ab * 255)
+                .byte()
+                .permute(1, 2, 0)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
 
         if depthmap is not None:
             rgb = o3d.geometry.Image(rgb_raw.astype(np.uint8))
-            segmentation_map = o3d.geometry.Image(segmentation_map_raw.astype(np.uint8))
             depth = o3d.geometry.Image(depthmap.astype(np.float32))
+            if self.is_semantic:
+                segmentation_map = o3d.geometry.Image(
+                    segmentation_map_raw.astype(np.uint8)
+                )
         else:
             depth_raw = cam.depth
             if depth_raw is None:
@@ -146,14 +151,22 @@ class GaussianModel:
                 ) * scale
 
             rgb = o3d.geometry.Image(rgb_raw.astype(np.uint8))
-            segmentation_map = o3d.geometry.Image(segmentation_map_raw.astype(np.uint8))
             depth = o3d.geometry.Image(depth_raw.astype(np.float32))
+            if self.is_semantic:
+                segmentation_map = o3d.geometry.Image(
+                    segmentation_map_raw.astype(np.uint8)
+                )
 
-        return self.create_pcd_from_semantic_image_and_depth(
-            cam, rgb, segmentation_map, depth, init
-        )
+        if self.is_semantic:
+            return self.create_pcd_from_semantic_image_depth(
+                cam, rgb, segmentation_map, depth, init
+            )
+        else:
+            return self.create_pcd_from_semantic_image_depth(
+                cam, rgb, None, depth, init
+            )
 
-    def create_pcd_from_semantic_image_and_depth(
+    def create_pcd_from_semantic_image_depth(
         self, cam, rgb, segmentation_map, depth, init=False
     ):
         if init:
@@ -188,53 +201,14 @@ class GaussianModel:
             project_valid_depth_only=True,
         )
         rgbd_pcd_tmp = rgbd_pcd_tmp.random_down_sample(1.0 / downsample_factor)
-
-        semantic_rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
-            segmentation_map,
-            depth,
-            depth_scale=1.0,
-            depth_trunc=100.0,
-            convert_rgb_to_intensity=False,
-        )
-        semantic_rgbd_pcd_tmp = o3d.geometry.PointCloud.create_from_rgbd_image(
-            semantic_rgbd,
-            o3d.camera.PinholeCameraIntrinsic(
-                cam.image_width,
-                cam.image_height,
-                cam.fx,
-                cam.fy,
-                cam.cx,
-                cam.cy,
-            ),
-            extrinsic=W2C,
-            project_valid_depth_only=True,
-        )
-        semantic_rgbd_pcd_tmp = semantic_rgbd_pcd_tmp.random_down_sample(
-            1.0 / downsample_factor
-        )
-
         new_xyz = np.asarray(rgbd_pcd_tmp.points)
         new_rgb = np.asarray(rgbd_pcd_tmp.colors)
-        new_segmentation_map = np.asarray(semantic_rgbd_pcd_tmp.colors)
-
         pcd = BasicPointCloud(
             points=new_xyz, colors=new_rgb, normals=np.zeros((new_xyz.shape[0], 3))
         )
         self.ply_input = pcd
-
-        semantic_pcd = BasicPointCloud(
-            points=new_xyz,
-            colors=new_segmentation_map,
-            normals=np.zeros((new_xyz.shape[0], 3)),
-        )
-        self.semantic_ply_input = semantic_pcd
-
         fused_rgbd_point_cloud = torch.from_numpy(np.asarray(pcd.points)).float().cuda()
         fused_color = RGB2SH(torch.from_numpy(np.asarray(pcd.colors)).float().cuda())
-        # TODO: No need to use SH to encode semantics
-        fused_semantics = RGB2SH(
-            torch.from_numpy(np.asarray(semantic_pcd.colors)).float().cuda()
-        )
         features = (
             torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2))
             .float()
@@ -243,13 +217,50 @@ class GaussianModel:
         features[:, :3, 0] = fused_color
         features[:, 3:, 1:] = 0.0
 
-        semantic_features = (
-            torch.zeros((fused_semantics.shape[0], 3, (self.max_sh_degree + 1) ** 2))
-            .float()
-            .cuda()
-        )
-        semantic_features[:, :3, 0] = fused_semantics
-        semantic_features[:, 3:, 1:] = 0.0
+        if self.is_semantic:
+            semantic_rgbd = o3d.geometry.RGBDImage.create_from_color_and_depth(
+                segmentation_map,
+                depth,
+                depth_scale=1.0,
+                depth_trunc=100.0,
+                convert_rgb_to_intensity=False,
+            )
+            semantic_rgbd_pcd_tmp = o3d.geometry.PointCloud.create_from_rgbd_image(
+                semantic_rgbd,
+                o3d.camera.PinholeCameraIntrinsic(
+                    cam.image_width,
+                    cam.image_height,
+                    cam.fx,
+                    cam.fy,
+                    cam.cx,
+                    cam.cy,
+                ),
+                extrinsic=W2C,
+                project_valid_depth_only=True,
+            )
+            semantic_rgbd_pcd_tmp = semantic_rgbd_pcd_tmp.random_down_sample(
+                1.0 / downsample_factor
+            )
+            new_segmentation_map = np.asarray(semantic_rgbd_pcd_tmp.colors)
+            semantic_pcd = BasicPointCloud(
+                points=new_xyz,
+                colors=new_segmentation_map,
+                normals=np.zeros((new_xyz.shape[0], 3)),
+            )
+            self.semantic_ply_input = semantic_pcd
+            # TODO: No need to use SH to encode semantics
+            fused_semantics = RGB2SH(
+                torch.from_numpy(np.asarray(semantic_pcd.colors)).float().cuda()
+            )
+            semantic_features = (
+                torch.zeros(
+                    (fused_semantics.shape[0], 3, (self.max_sh_degree + 1) ** 2)
+                )
+                .float()
+                .cuda()
+            )
+            semantic_features[:, :3, 0] = fused_semantics
+            semantic_features[:, 3:, 1:] = 0.0
 
         dist2 = (
             torch.clamp_min(
@@ -271,14 +282,23 @@ class GaussianModel:
             )
         )
 
-        return (
-            fused_rgbd_point_cloud,
-            features,
-            semantic_features,
-            scales,
-            rots,
-            opacities,
-        )
+        if self.is_semantic:
+            return (
+                fused_rgbd_point_cloud,
+                features,
+                semantic_features,
+                scales,
+                rots,
+                opacities,
+            )
+        else:
+            return (
+                fused_rgbd_point_cloud,
+                features,
+                scales,
+                rots,
+                opacities,
+            )
 
     def init_lr(self, spatial_lr_scale):
         self.spatial_lr_scale = spatial_lr_scale
@@ -300,42 +320,70 @@ class GaussianModel:
         new_features_rest = nn.Parameter(
             features[:, :, 1:].transpose(1, 2).contiguous().requires_grad_(True)
         )
-        new_features_semantics = nn.Parameter(
-            semantic_features.transpose(1, 2).contiguous().requires_grad_(True)
-        )
+        if self.is_semantic:
+            new_features_semantics = nn.Parameter(
+                semantic_features.transpose(1, 2).contiguous().requires_grad_(True)
+            )
         new_scaling = nn.Parameter(scales.requires_grad_(True))
         new_rotation = nn.Parameter(rots.requires_grad_(True))
         new_opacity = nn.Parameter(opacities.requires_grad_(True))
 
         new_unique_kfIDs = torch.ones((new_xyz.shape[0])).int() * kf_id
         new_n_obs = torch.zeros((new_xyz.shape[0])).int()
-        self.densification_postfix(
-            new_xyz,
-            new_features_dc,
-            new_features_rest,
-            new_features_semantics,
-            new_opacity,
-            new_scaling,
-            new_rotation,
-            new_kf_ids=new_unique_kfIDs,
-            new_n_obs=new_n_obs,
-        )
+        if self.is_semantic:
+            self.densification_postfix(
+                new_xyz,
+                new_features_dc,
+                new_features_rest,
+                new_features_semantics,
+                new_opacity,
+                new_scaling,
+                new_rotation,
+                new_kf_ids=new_unique_kfIDs,
+                new_n_obs=new_n_obs,
+            )
+        else:
+            self.densification_postfix(
+                new_xyz,
+                new_features_dc,
+                new_features_rest,
+                None,
+                new_opacity,
+                new_scaling,
+                new_rotation,
+                new_kf_ids=new_unique_kfIDs,
+                new_n_obs=new_n_obs,
+            )
 
     def extend_from_pcd_seq(
-        self, camera, kf_id=-1, init=False, scale=2.0, depthmap=None
+        self, camera: Camera, kf_id=-1, init=False, scale=2.0, depthmap=None
     ):
-        fused_point_cloud, features, semantic_features, scales, rots, opacities = (
-            self.create_pcd(camera, init, scale=scale, depthmap=depthmap)
-        )
-        self.extend_from_pcd(
-            fused_point_cloud,
-            features,
-            semantic_features,
-            scales,
-            rots,
-            opacities,
-            kf_id,
-        )
+        if self.is_semantic:
+            fused_point_cloud, features, semantic_features, scales, rots, opacities = (
+                self.create_pcd(camera, init, scale=scale, depthmap=depthmap)
+            )
+            self.extend_from_pcd(
+                fused_point_cloud,
+                features,
+                semantic_features,
+                scales,
+                rots,
+                opacities,
+                kf_id,
+            )
+        else:
+            fused_point_cloud, features, scales, rots, opacities = self.create_pcd(
+                camera, init, scale=scale, depthmap=depthmap
+            )
+            self.extend_from_pcd(
+                fused_point_cloud,
+                features,
+                None,
+                scales,
+                rots,
+                opacities,
+                kf_id,
+            )
 
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
@@ -359,11 +407,6 @@ class GaussianModel:
                 "name": "f_rest",
             },
             {
-                "params": [self._features_semantics],
-                "lr": training_args.feature_lr,
-                "name": "f_semantics",
-            },
-            {
                 "params": [self._opacity],
                 "lr": training_args.opacity_lr,
                 "name": "opacity",
@@ -379,6 +422,14 @@ class GaussianModel:
                 "name": "rotation",
             },
         ]
+        if self.is_semantic:
+            l.append(
+                {
+                    "params": [self._features_semantics],
+                    "lr": training_args.feature_lr,
+                    "name": "f_semantics",
+                }
+            )
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
@@ -416,10 +467,11 @@ class GaussianModel:
             l.append("f_dc_{}".format(i))
         for i in range(self._features_rest.shape[1] * self._features_rest.shape[2]):
             l.append("f_rest_{}".format(i))
-        for i in range(
-            self._features_semantics.shape[1] * self._features_semantics.shape[2]
-        ):
-            l.append("f_semantics_{}".format(i))
+        if self.is_semantic:
+            for i in range(
+                self._features_semantics.shape[1] * self._features_semantics.shape[2]
+            ):
+                l.append("f_semantics_{}".format(i))
         l.append("opacity")
         for i in range(self._scaling.shape[1]):
             l.append("scale_{}".format(i))
@@ -622,7 +674,8 @@ class GaussianModel:
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
-        self._features_semantics = optimizable_tensors["f_semantics"]
+        if self.is_semantic:
+            self._features_semantics = optimizable_tensors["f_semantics"]
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -684,17 +737,19 @@ class GaussianModel:
             "xyz": new_xyz,
             "f_dc": new_features_dc,
             "f_rest": new_features_rest,
-            "f_semantics": new_features_semantics,
             "opacity": new_opacities,
             "scaling": new_scaling,
             "rotation": new_rotation,
         }
+        if self.is_semantic:
+            d.update({"f_semantics": new_features_semantics})
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
         self._features_dc = optimizable_tensors["f_dc"]
         self._features_rest = optimizable_tensors["f_rest"]
-        self._features_semantics = optimizable_tensors["f_semantics"]
+        if self.is_semantic:
+            self._features_semantics = optimizable_tensors["f_semantics"]
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
@@ -732,9 +787,13 @@ class GaussianModel:
         new_rotation = self._rotation[selected_pts_mask].repeat(N, 1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N, 1, 1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N, 1, 1)
-        new_features_semantics = self._features_semantics[selected_pts_mask].repeat(
-            N, 1, 1
-        )
+
+        if self.is_semantic:
+            new_features_semantics = self._features_semantics[selected_pts_mask].repeat(
+                N, 1, 1
+            )
+        else:
+            new_features_semantics = None
         new_opacity = self._opacity[selected_pts_mask].repeat(N, 1)
 
         new_kf_id = self.unique_kfIDs[selected_pts_mask.cpu()].repeat(N)
@@ -775,7 +834,10 @@ class GaussianModel:
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
         new_features_rest = self._features_rest[selected_pts_mask]
-        new_features_semantics = self._features_semantics[selected_pts_mask]
+        if self.is_semantic:
+            new_features_semantics = self._features_semantics[selected_pts_mask]
+        else:
+            new_features_semantics = None
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]

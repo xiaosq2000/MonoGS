@@ -2,16 +2,16 @@
 Results:
   save_results: True
   save_dir: "results"
-  save_trj: False
+  save_trj: True
   save_trj_kf_intv: 5
   use_gui: True
-  eval_rendering: False
+  eval_rendering: True
   use_wandb: False
 
 Dataset:
   type: 'tum_semantic'
   sensor_type: 'depth'
-  semantic: True
+  semantic: False
   pcd_downsample: 128
   pcd_downsample_init: 32
   adaptive_pointsize: True
