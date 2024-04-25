@@ -87,7 +87,11 @@ def get_loss_tracking_semantics(config, segmentation_map, depth, opacity, viewpo
 def get_loss_tracking_rgbd(
     config, image, depth, opacity, viewpoint, initialization=False
 ):
-    alpha = config["Training"]["alpha"] if "alpha" in config["Training"] else 0.95
+    alpha = (
+        config["Training"]["tracking_alpha"]
+        if "tracking_alpha" in config["Training"]
+        else 0.95
+    )
 
     gt_depth = torch.from_numpy(viewpoint.depth).to(
         dtype=torch.float32, device=image.device
@@ -104,8 +108,16 @@ def get_loss_tracking_rgbd(
 def get_loss_tracking_semantic_rgbd(
     config, image, segmentation_map, depth, opacity, viewpoint, initialization=False
 ):
-    alpha = 0.80
-    beta = 0.15
+    alpha = (
+        config["Training"]["tracking_alpha"]
+        if "tracking_alpha" in config["Training"]
+        else 0.9
+    )
+    beta = (
+        config["Training"]["tracking_beta"]
+        if "tracking_beta" in config["Training"]
+        else 0.05
+    )
 
     gt_depth = torch.from_numpy(viewpoint.depth).to(
         dtype=torch.float32, device=image.device
@@ -117,8 +129,10 @@ def get_loss_tracking_semantic_rgbd(
     l1_semantics = get_loss_tracking_semantics(
         config, segmentation_map, depth, opacity, viewpoint
     )
+
     depth_mask = depth_pixel_mask * opacity_mask
     l1_depth = torch.abs(depth * depth_mask - gt_depth * depth_mask)
+
     return alpha * l1_rgb + beta * l1_depth.mean() + (1 - alpha - beta) * l1_semantics
 
 
@@ -157,7 +171,11 @@ def get_loss_mapping_rgb(config, image, depth, viewpoint):
 
 
 def get_loss_mapping_rgbd(config, image, depth, viewpoint, initialization=False):
-    alpha = config["Training"]["alpha"] if "alpha" in config["Training"] else 0.95
+    alpha = (
+        config["Training"]["mapping_alpha"]
+        if "mapping_alpha" in config["Training"]
+        else 0.95
+    )
     rgb_boundary_threshold = config["Training"]["rgb_boundary_threshold"]
 
     gt_image = viewpoint.original_image.cuda()
@@ -177,10 +195,16 @@ def get_loss_mapping_rgbd(config, image, depth, viewpoint, initialization=False)
 def get_loss_mapping_semantic_rgbd(
     config, image, segmentation_map, depth, viewpoint, initialization=False
 ):
-    # alpha = config["Training"]["alpha"] if "alpha" in config["Training"] else 0.95
-    # beta = config["Training"]["beta"] if "beta" in config["Training"] else 0.15
-    alpha = 0.80
-    beta = 0.15
+    alpha = (
+        config["Training"]["mapping_alpha"]
+        if "mapping_alpha" in config["Training"]
+        else 0.9
+    )
+    beta = (
+        config["Training"]["mapping_beta"]
+        if "mapping_beta" in config["Training"]
+        else 0.05
+    )
     rgb_boundary_threshold = config["Training"]["rgb_boundary_threshold"]
 
     gt_image = viewpoint.original_image.cuda()
@@ -194,10 +218,12 @@ def get_loss_mapping_semantic_rgbd(
     depth_pixel_mask = (gt_depth > 0.01).view(*depth.shape)
 
     l1_rgb = torch.abs(image * rgb_pixel_mask - gt_image * rgb_pixel_mask)
-    l1_semantics = torch.abs(
-        segmentation_map * segmentation_pixel_mask
-        - gt_segmentation_map * segmentation_pixel_mask
+
+    l1_semantics = torch.nn.functional.binary_cross_entropy(
+        torch.nn.functional.softmax(segmentation_map * segmentation_pixel_mask),
+        torch.nn.functional.softmax(gt_segmentation_map * segmentation_pixel_mask),
     )
+
     l1_depth = torch.abs(depth * depth_pixel_mask - gt_depth * depth_pixel_mask)
 
     return (

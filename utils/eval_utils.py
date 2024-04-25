@@ -16,6 +16,7 @@ from torchmetrics.image.lpip import LearnedPerceptualImagePatchSimilarity
 
 import wandb
 from gaussian_splatting.gaussian_renderer import render
+from gaussian_splatting.scene.gaussian_model import GaussianModel
 from gaussian_splatting.utils.image_utils import psnr
 from gaussian_splatting.utils.loss_utils import ssim
 from gaussian_splatting.utils.system_utils import mkdir_p
@@ -107,7 +108,7 @@ def eval_ate(frames, kf_ids, save_dir, iterations, final=False, monocular=False)
         label=label_evo,
         monocular=monocular,
     )
-    wandb.log({"frame_idx": latest_frame_idx, "ate": ate})
+    wandb.log({"Frame Index": latest_frame_idx, "Absolute Trajectory Error": ate})
     return ate
 
 
@@ -178,7 +179,7 @@ def eval_rendering(
     return output
 
 
-def save_gaussians(gaussians, name, iteration, final=False):
+def save_gaussians(gaussians: GaussianModel, name, iteration, final=False):
     if name is None:
         return
     if final:

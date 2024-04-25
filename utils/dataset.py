@@ -677,7 +677,10 @@ def load_dataset(args, path, config):
     if config["Dataset"]["type"] == "tum":
         return TUMDataset(args, path, config)
     elif config["Dataset"]["type"] == "tum_semantic":
-        return TUMSemanticDataset(args, path, config)
+        if config["Dataset"]["semantic"]:
+            return TUMSemanticDataset(args, path, config)
+        else:
+            return TUMDataset(args, path, config)
     elif config["Dataset"]["type"] == "replica":
         return ReplicaDataset(args, path, config)
     elif config["Dataset"]["type"] == "euroc":

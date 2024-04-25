@@ -221,8 +221,8 @@ if __name__ == "__main__":
         Log("Following config will be overriden")
         Log("\tsave_results=True")
         config["Results"]["save_results"] = True
-        Log("\tuse_gui=False")
-        config["Results"]["use_gui"] = False
+        Log("\tuse_gui=True")
+        config["Results"]["use_gui"] = True
         Log("\teval_rendering=True")
         config["Results"]["eval_rendering"] = True
         Log("\tuse_wandb=True")
@@ -243,13 +243,13 @@ if __name__ == "__main__":
             documents = yaml.dump(config, file)
         Log("saving results in " + save_dir)
         run = wandb.init(
-            project="MonoGS",
+            project="Semantic-3DGS-SLAM",
             name=f"{tmp}_{current_datetime}",
             config=config,
             mode=None if config["Results"]["use_wandb"] else "disabled",
         )
-        wandb.define_metric("frame_idx")
-        wandb.define_metric("ate*", step_metric="frame_idx")
+        wandb.define_metric("Frame Index")
+        wandb.define_metric("Absolute Trajectory Error", step_metric="Frame Index")
 
     slam = SLAM(config, save_dir=save_dir)
 

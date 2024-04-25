@@ -29,7 +29,7 @@ class FrontEnd(mp.Process):
         self.initialized = False
         self.kf_indices = []
         self.monocular = config["Training"]["monocular"]
-        self.semantic = config["Training"]["semantic"]
+        self.is_semantic = config["Training"]["semantic"]
         self.iteration_count = 0
         self.occ_aware_visibility = {}
         self.current_window = []
@@ -392,7 +392,7 @@ class FrontEnd(mp.Process):
                     continue
 
                 viewpoint = Camera.init_from_dataset(
-                    self.dataset, self.semantic, cur_frame_idx, projection_matrix
+                    self.dataset, self.is_semantic, cur_frame_idx, projection_matrix
                 )
                 viewpoint.compute_grad_mask(self.config)
 

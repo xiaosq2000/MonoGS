@@ -500,14 +500,15 @@ class GaussianModel:
             .cpu()
             .numpy()
         )
-        f_semantics = (
-            self._features_semantics.detach()
-            .transpose(1, 2)
-            .flatten(start_dim=1)
-            .contiguous()
-            .cpu()
-            .numpy()
-        )
+        if self.is_semantic:
+            f_semantics = (
+                self._features_semantics.detach()
+                .transpose(1, 2)
+                .flatten(start_dim=1)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
@@ -516,10 +517,16 @@ class GaussianModel:
             (attribute, "f4") for attribute in self.construct_list_of_attributes()
         ]
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate(
-            (xyz, normals, f_dc, f_rest, f_semantics, opacities, scale, rotation),
-            axis=1,
-        )
+        if self.is_semantic:
+            attributes = np.concatenate(
+                (xyz, normals, f_dc, f_rest, f_semantics, opacities, scale, rotation),
+                axis=1,
+            )
+        else:
+            attributes = np.concatenate(
+                (xyz, normals, f_dc, f_rest, opacities, scale, rotation),
+                axis=1,
+            )
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, "vertex")
         PlyData([el]).write(path)

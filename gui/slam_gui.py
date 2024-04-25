@@ -453,7 +453,6 @@ class SLAM_GUI:
             segmentation_map = (
                 segmentation_map.byte().permute(1, 2, 0).contiguous().cpu().numpy()
             )
-            print("Hello")
             if self.is_semantic:
                 segmentation_map = o3d.geometry.Image(segmentation_map)
                 self.in_segmentation_widget.update_image(segmentation_map)
