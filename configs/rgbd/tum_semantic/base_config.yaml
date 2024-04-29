@@ -18,6 +18,11 @@ Dataset:
   point_size: 0.01
 
 Training:
+  #
+  tracking_alpha: 0.80
+  tracking_beta: 0.05
+  mapping_alpha: 0.80
+  mapping_beta: 0.05
   #Initialization
   init_itr_num: 1050
   init_gaussian_update: 100
@@ -38,10 +43,6 @@ Training:
   pose_window: 3
   edge_threshold: 1.1
   rgb_boundary_threshold: 0.01
-  tracking_alpha: 0.90
-  tracking_beta: 0
-  mapping_alpha: 0.85
-  mapping_beta: 0.05
   kf_translation: 0.08
   kf_min_translation: 0.05
   kf_overlap: 0.9
@@ -63,6 +64,8 @@ opt_params:
   position_lr_delay_mult: 0.01
   position_lr_max_steps: 30000
   feature_lr: 0.0025
+  # semantic
+  semantic_feature_lr: 0.01
   opacity_lr: 0.05
   scaling_lr: 0.001
   rotation_lr: 0.001

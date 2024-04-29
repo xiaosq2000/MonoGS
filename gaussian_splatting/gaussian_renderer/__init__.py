@@ -70,7 +70,7 @@ def _render(
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
-        debug=False,
+        debug=True,
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -246,24 +246,28 @@ def _semantic_render(
     else:
         colors_precomp = override_color
 
-    semantics_precomp = None
     # TODO
+    semantic_shs = None
+    semantics_precomp = None
     if semantics_precomp is None:
-        semantic_shs_view = pc.get_semantic_features.transpose(1, 2).view(
-            -1, 3, (pc.max_sh_degree + 1) ** 2
-        )
-        semantic_dir_pp = pc.get_xyz - viewpoint_camera.camera_center.repeat(
-            pc.get_semantic_features.shape[0], 1
-        )
-        semantic_dir_pp_normalized = semantic_dir_pp / semantic_dir_pp.norm(
-            dim=1, keepdim=True
-        )
-        semantic_sh2rgb = eval_sh(
-            pc.active_sh_degree, semantic_shs_view, semantic_dir_pp_normalized
-        )
-        semantics_precomp = torch.clamp_min(semantic_sh2rgb + 0.5, 0.0)
+        if pipe.convert_SHs_python:
+            semantic_shs_view = pc.get_semantic_features.transpose(1, 2).view(
+                -1, 3, (pc.max_sh_degree + 1) ** 2
+            )
+            semantic_dir_pp = pc.get_xyz - viewpoint_camera.camera_center.repeat(
+                pc.get_semantic_features.shape[0], 1
+            )
+            semantic_dir_pp_normalized = semantic_dir_pp / semantic_dir_pp.norm(
+                dim=1, keepdim=True
+            )
+            semantic_sh2rgb = eval_sh(
+                pc.active_sh_degree, semantic_shs_view, semantic_dir_pp_normalized
+            )
+            semantics_precomp = torch.clamp_min(semantic_sh2rgb + 0.5, 0.0)
+        else:
+            semantic_shs = pc.get_semantic_features
     else:
-        raise ValueError("Only pre-computation of semantics is supported.")
+        raise ValueError("TODO: Semantics Precomputation is not support yet.")
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
     if mask is not None:
@@ -271,6 +275,7 @@ def _semantic_render(
             means3D=means3D[mask],
             means2D=means2D[mask],
             shs=shs[mask],
+            semantic_shs=semantic_shs[mask],
             colors_precomp=colors_precomp[mask] if colors_precomp is not None else None,
             semantics_precomp=semantics_precomp[mask]
             if semantics_precomp is not None
@@ -288,6 +293,7 @@ def _semantic_render(
                 means3D=means3D,
                 means2D=means2D,
                 shs=shs,
+                semantic_shs=semantic_shs,
                 colors_precomp=colors_precomp,
                 semantics_precomp=semantics_precomp,
                 opacities=opacity,

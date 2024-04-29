@@ -426,7 +426,7 @@ class GaussianModel:
             l.append(
                 {
                     "params": [self._features_semantics],
-                    "lr": training_args.feature_lr,
+                    "lr": training_args.semantic_feature_lr,
                     "name": "f_semantics",
                 }
             )

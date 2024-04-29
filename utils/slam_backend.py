@@ -11,6 +11,7 @@ from utils.logging_utils import Log
 from utils.multiprocessing_utils import clone_obj
 from utils.pose_utils import update_pose
 from utils.slam_utils import get_loss_mapping
+from utils.semantic_decoder import SemanticDecoder
 
 
 class BackEnd(mp.Process):
@@ -38,6 +39,7 @@ class BackEnd(mp.Process):
         self.current_window = []
         self.initialized = not self.monocular
         self.keyframe_optimizers = None
+        self.semantic_decoder = SemanticDecoder()
 
     def set_hyperparams(self):
         self.save_results = self.config["Results"]["save_results"]
@@ -112,7 +114,9 @@ class BackEnd(mp.Process):
                 segmentation_map = render_pkg["render_semantics"]
             else:
                 segmentation_map = None
-
+            c, h, w = segmentation_map.size()
+            self.semantic_decoder.to("cuda")
+            self.semantic_decoder.init(c * h * w, 10)
             loss_init = get_loss_mapping(
                 self.config,
                 image,
@@ -121,6 +125,7 @@ class BackEnd(mp.Process):
                 viewpoint,
                 opacity,
                 initialization=True,
+                semantic_decoder=self.semantic_decoder,
             )
             loss_init.backward()
 
@@ -207,7 +212,13 @@ class BackEnd(mp.Process):
                     segmentation_map = None
 
                 loss_mapping += get_loss_mapping(
-                    self.config, image, segmentation_map, depth, viewpoint, opacity
+                    self.config,
+                    image,
+                    segmentation_map,
+                    depth,
+                    viewpoint,
+                    opacity,
+                    semantic_decoder=self.semantic_decoder,
                 )
 
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
@@ -243,8 +254,15 @@ class BackEnd(mp.Process):
                     segmentation_map = None
 
                 loss_mapping += get_loss_mapping(
-                    self.config, image, segmentation_map, depth, viewpoint, opacity
+                    self.config,
+                    image,
+                    segmentation_map,
+                    depth,
+                    viewpoint,
+                    opacity,
+                    semantic_decoder=self.semantic_decoder,
                 )
+
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
                 visibility_filter_acm.append(visibility_filter)
                 radii_acm.append(radii)

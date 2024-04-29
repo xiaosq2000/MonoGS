@@ -1,4 +1,5 @@
 import torch
+from utils.semantic_decoder import SemanticDecoder
 
 
 def image_gradient(image):
@@ -137,7 +138,14 @@ def get_loss_tracking_semantic_rgbd(
 
 
 def get_loss_mapping(
-    config, image, segmentation_map, depth, viewpoint, opacity, initialization=False
+    config,
+    image,
+    segmentation_map,
+    depth,
+    viewpoint,
+    opacity,
+    initialization=False,
+    semantic_decoder: SemanticDecoder = None,
 ):
     if initialization:
         image_ab = image
@@ -150,7 +158,12 @@ def get_loss_mapping(
     else:
         if config["Training"]["semantic"]:
             loss = get_loss_mapping_semantic_rgbd(
-                config, image_ab, segmentation_map, depth, viewpoint
+                config,
+                image_ab,
+                segmentation_map,
+                depth,
+                viewpoint,
+                semantic_decoder=semantic_decoder,
             )
         else:
             loss = get_loss_mapping_rgbd(config, image_ab, depth, viewpoint)
@@ -193,7 +206,13 @@ def get_loss_mapping_rgbd(config, image, depth, viewpoint, initialization=False)
 
 
 def get_loss_mapping_semantic_rgbd(
-    config, image, segmentation_map, depth, viewpoint, initialization=False
+    config,
+    image,
+    segmentation_map,
+    depth,
+    viewpoint,
+    initialization=False,
+    semantic_decoder: SemanticDecoder = None,
 ):
     alpha = (
         config["Training"]["mapping_alpha"]
@@ -213,22 +232,33 @@ def get_loss_mapping_semantic_rgbd(
         dtype=torch.float32, device=image.device
     )[None]
     rgb_pixel_mask = (gt_image.sum(dim=0) > rgb_boundary_threshold).view(*depth.shape)
+
     # TODO
     segmentation_pixel_mask = (gt_segmentation_map.sum(dim=0) > 0).view(*depth.shape)
     depth_pixel_mask = (gt_depth > 0.01).view(*depth.shape)
 
     l1_rgb = torch.abs(image * rgb_pixel_mask - gt_image * rgb_pixel_mask)
 
-    l1_semantics = torch.nn.functional.binary_cross_entropy(
-        torch.nn.functional.softmax(segmentation_map * segmentation_pixel_mask),
-        torch.nn.functional.softmax(gt_segmentation_map * segmentation_pixel_mask),
+    loss_semantics = torch.abs(
+        segmentation_map * segmentation_pixel_mask
+        - gt_segmentation_map * segmentation_pixel_mask
     )
+
+    # loss_semantics = torch.nn.CrossEntropyLoss()(
+    #     segmentation_map * segmentation_pixel_mask,
+    #     gt_segmentation_map * segmentation_pixel_mask,
+    # )
+
+    # loss_semantics = torch.nn.CrossEntropyLoss()(
+    #     semantic_decoder(segmentation_map * segmentation_pixel_mask),
+    #     gt_segmentation_map * segmentation_pixel_mask,
+    # )
 
     l1_depth = torch.abs(depth * depth_pixel_mask - gt_depth * depth_pixel_mask)
 
     return (
         alpha * l1_rgb.mean()
-        + beta * l1_semantics.mean()
+        + beta * loss_semantics.mean()
         + (1 - alpha - beta) * l1_depth.mean()
     )
 
