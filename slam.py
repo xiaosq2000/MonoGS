@@ -104,7 +104,10 @@ class SLAM:
 
         backend_process = mp.Process(target=self.backend.run)
         if self.use_gui:
-            gui_process = mp.Process(target=slam_gui.run, args=(self.params_gui,))
+            gui_process = mp.Process(
+                target=slam_gui.run,
+                args=(self.params_gui, self.gaussians.semantic_decoder),
+            )
             gui_process.start()
             time.sleep(5)
 
@@ -159,7 +162,7 @@ class SLAM:
             backend_queue.put(["color_refinement"])
             while True:
                 if frontend_queue.empty():
-                    time.sleep(0.01)
+                    time.sleep(0.1)
                     continue
                 data = frontend_queue.get()
                 if data[0] == "sync_backend" and frontend_queue.empty():

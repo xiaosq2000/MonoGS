@@ -26,13 +26,14 @@ from gui.gui_utils import (
     get_latest_queue,
 )
 from utils.camera_utils import Camera
+from utils.semantic_decoder import SemanticDecoder, generate_segmentation_map
 from utils.logging_utils import Log
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 
 
 class SLAM_GUI:
-    def __init__(self, params_gui=None):
+    def __init__(self, params_gui=None, semantic_decoder: SemanticDecoder = None):
         self.step = 0
         self.process_finished = False
         self.device = "cuda"
@@ -59,6 +60,7 @@ class SLAM_GUI:
             self.q_vis2main = params_gui.q_vis2main
             self.pipe = params_gui.pipe
             self.is_semantic = params_gui.gaussians.is_semantic
+        self.semantic_decoder = semantic_decoder
 
         self.gaussian_nums = []
 
@@ -188,7 +190,7 @@ class SLAM_GUI:
         chbox_tile_geometry.add_child(self.elipsoid_chbox)
 
         self.segmentation_chbox = gui.Checkbox("Segmentation")
-        self.segmentation_chbox.checked = False
+        self.segmentation_chbox.checked = True
         chbox_tile_geometry.add_child(self.segmentation_chbox)
 
         self.elipsoid_segmentation_chbox = gui.Checkbox("Semantic Elipsoid Shader")
@@ -456,9 +458,8 @@ class SLAM_GUI:
             if self.is_semantic:
                 segmentation_map = o3d.geometry.Image(segmentation_map)
                 self.in_segmentation_widget.update_image(segmentation_map)
-            else: 
+            else:
                 self.in_segmentation_widget.update_image(o3d.geometry.Image())
-
 
         if gaussian_packet.gtdepth is not None:
             depth = gaussian_packet.gtdepth
@@ -662,13 +663,26 @@ class SLAM_GUI:
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
         elif self.segmentation_chbox.checked and self.is_semantic:
-            segmentation_map = (
-                (torch.clamp(results["render_semantics"], min=0, max=1.0) * 255)
-                .byte()
-                .permute(1, 2, 0)
-                .contiguous()
-                .cpu()
-                .numpy()
+            # segmentation_map = (
+            #     (
+            #         torch.clamp(
+            #             results["render"],
+            #             min=0,
+            #             max=1.0,
+            #         )
+            #         * 255
+            #     )
+            #     .byte()
+            #     .permute(1, 2, 0)
+            #     .contiguous()
+            #     .cpu()
+            #     .numpy()
+            # )
+            segmentation_map = generate_segmentation_map(
+                results["render_semantics"],
+                self.semantic_decoder.color_palette,
+                results["render"].shape[1],
+                results["render"].shape[2],
             )
             render_img = o3d.geometry.Image(segmentation_map)
         elif self.elipsoid_segmentation_chbox.checked and self.is_semantic:
@@ -742,7 +756,7 @@ class SLAM_GUI:
 
     def _update_thread(self):
         while True:
-            time.sleep(0.01)
+            time.sleep(0.1)
             self.step += 1
             if self.process_finished:
                 o3d.visualization.gui.Application.instance.quit()
@@ -759,10 +773,10 @@ class SLAM_GUI:
             gui.Application.instance.post_to_main_thread(self.window, update)
 
 
-def run(params_gui=None):
+def run(params_gui=None, semantic_decoder: SemanticDecoder = None):
     app = o3d.visualization.gui.Application.instance
     app.initialize()
-    win = SLAM_GUI(params_gui)
+    win = SLAM_GUI(params_gui, semantic_decoder)
     app.run()
 
 

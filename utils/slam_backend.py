@@ -39,7 +39,6 @@ class BackEnd(mp.Process):
         self.current_window = []
         self.initialized = not self.monocular
         self.keyframe_optimizers = None
-        self.semantic_decoder = SemanticDecoder()
 
     def set_hyperparams(self):
         self.save_results = self.config["Results"]["save_results"]
@@ -111,21 +110,21 @@ class BackEnd(mp.Process):
             )
 
             if self.gaussians.is_semantic:
-                segmentation_map = render_pkg["render_semantics"]
+                semantics = render_pkg["render_semantics"]
+                if render_pkg["render_semantics"] is None:
+                    print("WTF?")
             else:
-                segmentation_map = None
-            c, h, w = segmentation_map.size()
-            self.semantic_decoder.to("cuda")
-            self.semantic_decoder.init(c * h * w, 10)
+                semantics = None
+
             loss_init = get_loss_mapping(
-                self.config,
-                image,
-                segmentation_map,
-                depth,
-                viewpoint,
-                opacity,
+                config=self.config,
+                image=image,
+                depth=depth,
+                viewpoint=viewpoint,
+                opacity=opacity,
                 initialization=True,
-                semantic_decoder=self.semantic_decoder,
+                semantics=semantics,
+                semantic_decoder=self.gaussians.semantic_decoder,
             )
             loss_init.backward()
 
@@ -218,7 +217,7 @@ class BackEnd(mp.Process):
                     depth,
                     viewpoint,
                     opacity,
-                    semantic_decoder=self.semantic_decoder,
+                    semantic_decoder=self.gaussians.semantic_decoder,
                 )
 
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
@@ -260,7 +259,7 @@ class BackEnd(mp.Process):
                     depth,
                     viewpoint,
                     opacity,
-                    semantic_decoder=self.semantic_decoder,
+                    semantic_decoder=self.gaussians.semantic_decoder,
                 )
 
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
@@ -409,14 +408,14 @@ class BackEnd(mp.Process):
         while True:
             if self.backend_queue.empty():
                 if self.pause:
-                    time.sleep(0.01)
+                    time.sleep(0.1)
                     continue
                 if len(self.current_window) == 0:
-                    time.sleep(0.01)
+                    time.sleep(0.1)
                     continue
 
                 if self.single_thread:
-                    time.sleep(0.01)
+                    time.sleep(0.1)
                     continue
                 self.map(self.current_window)
                 if self.last_sent >= 10:

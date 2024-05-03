@@ -9,9 +9,7 @@ import colorsys
 from tqdm import tqdm
 
 
-def count_and_label_classes(
-    image_path: str, color_to_index={}, min_pixels_per_mask=300
-):
+def count_and_label_classes(image_path: str, color_to_index={}, min_pixels_per_mask=None):
     # Read the image
     image = Image.open(image_path)
 
@@ -28,7 +26,7 @@ def count_and_label_classes(
     small_object_color_labels, new_color_labels = [], []
 
     for color, pixel_count in color_counts.items():
-        if pixel_count <= min_pixels_per_mask:
+        if min_pixels_per_mask is not None and pixel_count <= min_pixels_per_mask:
             small_object_color_labels.append(color)
         else:
             if color not in color_to_index or color_to_index[tuple(color)] == 0:
@@ -146,23 +144,22 @@ def generate_random_label_colors(num_classes=24, is_random=False):
 
 
 if __name__ == "__main__":
-    dir = os.path.normpath(
+    src_dir = os.path.normpath(
         "/mnt/dev-ssd-8T/shuqixiao/data/tum_semantic/rgbd_dataset_freiburg3_long_office_household/segmentation_map"
     )
-    filenames = sorted(os.listdir(dir))
-    file_paths = [os.path.join(dir, file) for file in filenames]
-    one_hot_dir = os.path.normpath(
-        "/mnt/dev-ssd-8T/shuqixiao/data/tum_semantic/rgbd_dataset_freiburg3_long_office_household/segmentation_one_hot"
+    filenames = sorted(os.listdir(src_dir))
+    file_paths = [os.path.join(src_dir, file) for file in filenames]
+    dst_dir = os.path.normpath(
+        "/mnt/dev-ssd-8T/shuqixiao/data/tum_semantic/rgbd_dataset_freiburg3_long_office_household/segmentation_label"
     )
-    if not os.path.isdir(one_hot_dir):
-        os.makedirs(one_hot_dir, exist_ok=True)
-    one_hot_file_paths = [
-        os.path.join(one_hot_dir, os.path.splitext(file)[0] + ".pt")
-        for file in filenames
+    if not os.path.isdir(dst_dir):
+        os.makedirs(dst_dir, exist_ok=True)
+    segmentation_label_paths = [
+        os.path.join(dst_dir, os.path.splitext(file)[0] + ".pt") for file in filenames
     ]
 
     color_to_index = {}
-    num_classes = 50
+    num_classes = 200
     color_palette = generate_random_label_colors(num_classes)
 
     for i, file in tqdm(enumerate(file_paths)):
@@ -172,8 +169,12 @@ if __name__ == "__main__":
         tqdm.write(
             f"Index {i}: number of objects = {len(set(color_to_index.values())) - 1}, number of new objects = {num_new_label}, number of small objects = {num_small_objects}"
         )
-        one_hot_image = encode_one_hot(labeled_image, num_classes)
-        torch.save(one_hot_image, one_hot_file_paths[i])
+        # one_hot_image = encode_one_hot(labeled_image, num_classes)
+        labeled_image_tensor = torchvision.transforms.functional.pil_to_tensor(
+            labeled_image
+        )
+        labeled_image_tensor = labeled_image_tensor.to(torch.int64)
+        torch.save(labeled_image_tensor, segmentation_label_paths[i])
 
         # print(
         #     # sort by index

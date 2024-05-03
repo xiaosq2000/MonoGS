@@ -159,10 +159,12 @@ class TUMSemanticParser:
 
         image_list = os.path.join(datapath, "rgb.txt")
         segmentation_map_list = os.path.join(datapath, "segmentation_map.txt")
+        segmentation_label_list = os.path.join(datapath, "segmentation_label.txt")
         depth_list = os.path.join(datapath, "depth.txt")
 
         image_data = self.parse_list(image_list)
         segmentation_map_data = self.parse_list(segmentation_map_list)
+        segmentation_label_data = self.parse_list(segmentation_label_list)
         depth_data = self.parse_list(depth_list)
         pose_data = self.parse_list(pose_list, skiprows=1)
         pose_vecs = pose_data[:, 0:].astype(np.float64)
@@ -182,16 +184,20 @@ class TUMSemanticParser:
         (
             self.color_paths,
             self.segmentation_map_paths,
+            self.segmentation_label_paths,
             self.poses,
             self.depth_paths,
             self.frames,
-        ) = [], [], [], [], []
+        ) = [], [], [], [], [], []
 
         for ix in indicies:
             (i, j, k) = associations[ix]
             self.color_paths += [os.path.join(datapath, image_data[i, 1])]
             self.segmentation_map_paths += [
                 os.path.join(datapath, segmentation_map_data[i, 1])
+            ]
+            self.segmentation_label_paths += [
+                os.path.join(datapath, segmentation_label_data[i, 1])
             ]
             self.depth_paths += [os.path.join(datapath, depth_data[j, 1])]
 
@@ -205,6 +211,9 @@ class TUMSemanticParser:
                 "file_path": str(os.path.join(datapath, image_data[i, 1])),
                 "segmentation_map_path": str(
                     os.path.join(datapath, segmentation_map_data[i, 1])
+                ),
+                "segmentation_label_path": str(
+                    os.path.join(datapath, segmentation_label_data[i, 1])
                 ),
                 "depth_path": str(os.path.join(datapath, depth_data[j, 1])),
                 "transform_matrix": (np.linalg.inv(T)).tolist(),
@@ -419,10 +428,12 @@ class MonocularSemanticDataset(BaseDataset):
     def __getitem__(self, idx):
         color_path = self.color_paths[idx]
         segmentation_map_path = self.segmentation_map_paths[idx]
+        segmentation_label_path = self.segmentation_label_paths[idx]
         pose = self.poses[idx]
 
         image = np.array(Image.open(color_path))
         segmentation_map = np.array(Image.open(segmentation_map_path))
+        segmentation_label = torch.load(segmentation_label_path)
         depth = None
 
         if self.disorted:
@@ -430,7 +441,6 @@ class MonocularSemanticDataset(BaseDataset):
             segmentation_map = cv2.remap(
                 segmentation_map, self.map1x, self.map1y, cv2.INTER_LINEAR
             )
-
         if self.has_depth:
             depth_path = self.depth_paths[idx]
             depth = np.array(Image.open(depth_path)) / self.depth_scale
@@ -447,9 +457,8 @@ class MonocularSemanticDataset(BaseDataset):
             .permute(2, 0, 1)
             .to(device=self.device, dtype=self.dtype)
         )
-
         pose = torch.from_numpy(pose).to(device=self.device)
-        return image, depth, segmentation_map, pose
+        return image, depth, segmentation_map, segmentation_label, pose
 
 
 class StereoDataset(BaseDataset):
@@ -587,6 +596,7 @@ class TUMSemanticDataset(MonocularSemanticDataset):
         self.color_paths = parser.color_paths
         self.depth_paths = parser.depth_paths
         self.segmentation_map_paths = parser.segmentation_map_paths
+        self.segmentation_label_paths = parser.segmentation_label_paths
         self.poses = parser.poses
 
 

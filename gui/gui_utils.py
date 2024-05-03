@@ -107,6 +107,7 @@ class GaussianPacket:
             self.unique_kfIDs = gaussians.unique_kfIDs.clone()
             self.n_obs = gaussians.n_obs.clone()
             self.is_semantic = gaussians.is_semantic
+            self.semantic_decoder = gaussians.semantic_decoder
 
         self.keyframe = keyframe
         self.current_frame = current_frame

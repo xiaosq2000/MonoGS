@@ -30,6 +30,7 @@ from gaussian_splatting.utils.graphics_utils import BasicPointCloud, getWorld2Vi
 from gaussian_splatting.utils.sh_utils import RGB2SH
 from gaussian_splatting.utils.system_utils import mkdir_p
 from utils.camera_utils import Camera
+from utils.semantic_decoder import SemanticDecoder
 
 
 class GaussianModel:
@@ -64,6 +65,7 @@ class GaussianModel:
 
         self.config = config
         self.is_semantic = self.config["Dataset"]["semantic"]
+        self.semantic_decoder = SemanticDecoder().to("cuda")
 
         self.ply_input = None
 
@@ -430,6 +432,13 @@ class GaussianModel:
                     "name": "f_semantics",
                 }
             )
+            l.append(
+                {
+                    "params": self.semantic_decoder.fc1.parameters(),
+                    "lr": training_args.semantic_decoder_lr,
+                    "name": "semantic_decoder",
+                }
+            )
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
@@ -462,6 +471,7 @@ class GaussianModel:
 
     def construct_list_of_attributes(self):
         l = ["x", "y", "z", "nx", "ny", "nz"]
+        # TODO
         # All channels except the 3 DC
         for i in range(self._features_dc.shape[1] * self._features_dc.shape[2]):
             l.append("f_dc_{}".format(i))
@@ -655,6 +665,8 @@ class GaussianModel:
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] == "semantic_decoder":
+                continue
             stored_state = self.optimizer.state.get(group["params"][0], None)
             if stored_state is not None:
                 stored_state["exp_avg"] = stored_state["exp_avg"][mask]
@@ -697,6 +709,8 @@ class GaussianModel:
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
+            if group["name"] == "semantic_decoder":
+                continue
             assert len(group["params"]) == 1
             extension_tensor = tensors_dict[group["name"]]
             stored_state = self.optimizer.state.get(group["params"][0], None)

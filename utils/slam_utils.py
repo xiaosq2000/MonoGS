@@ -1,4 +1,5 @@
 import torch
+from torch.nn import functional as F
 from utils.semantic_decoder import SemanticDecoder
 
 
@@ -62,9 +63,11 @@ def get_loss_tracking(
         return get_loss_tracking_rgb(config, image_ab, depth, opacity, viewpoint)
     else:
         if config["Training"]["semantic"]:
-            return get_loss_tracking_semantic_rgbd(
-                config, image, segmentation_map, depth, opacity, viewpoint
-            )
+            # TODO
+            return get_loss_tracking_rgbd(config, image_ab, depth, opacity, viewpoint)
+            # return get_loss_tracking_semantic_rgbd(
+            #     config, image, segmentation_map, depth, opacity, viewpoint
+            # )
         else:
             return get_loss_tracking_rgbd(config, image_ab, depth, opacity, viewpoint)
 
@@ -130,7 +133,6 @@ def get_loss_tracking_semantic_rgbd(
     l1_semantics = get_loss_tracking_semantics(
         config, segmentation_map, depth, opacity, viewpoint
     )
-
     depth_mask = depth_pixel_mask * opacity_mask
     l1_depth = torch.abs(depth * depth_mask - gt_depth * depth_mask)
 
@@ -140,7 +142,7 @@ def get_loss_tracking_semantic_rgbd(
 def get_loss_mapping(
     config,
     image,
-    segmentation_map,
+    semantics,
     depth,
     viewpoint,
     opacity,
@@ -157,12 +159,18 @@ def get_loss_mapping(
         loss = get_loss_mapping_rgb(config, image_ab, depth, viewpoint)
     else:
         if config["Training"]["semantic"]:
+            if initialization:
+                semantics_ab = semantics
+            else:
+                # TODO
+                semantics_ab = semantics
+
             loss = get_loss_mapping_semantic_rgbd(
-                config,
-                image_ab,
-                segmentation_map,
-                depth,
-                viewpoint,
+                config=config,
+                image=image_ab,
+                semantics=semantics_ab,
+                depth=depth,
+                viewpoint=viewpoint,
                 semantic_decoder=semantic_decoder,
             )
         else:
@@ -208,10 +216,9 @@ def get_loss_mapping_rgbd(config, image, depth, viewpoint, initialization=False)
 def get_loss_mapping_semantic_rgbd(
     config,
     image,
-    segmentation_map,
     depth,
     viewpoint,
-    initialization=False,
+    semantics,
     semantic_decoder: SemanticDecoder = None,
 ):
     alpha = (
@@ -227,34 +234,26 @@ def get_loss_mapping_semantic_rgbd(
     rgb_boundary_threshold = config["Training"]["rgb_boundary_threshold"]
 
     gt_image = viewpoint.original_image.cuda()
-    gt_segmentation_map = viewpoint.segmentation_map.cuda()
+    # gt_segmentation_map = viewpoint.segmentation_map.cuda()
+    gt_segmentation_label = viewpoint.segmentation_label.cuda()
     gt_depth = torch.from_numpy(viewpoint.depth).to(
         dtype=torch.float32, device=image.device
     )[None]
     rgb_pixel_mask = (gt_image.sum(dim=0) > rgb_boundary_threshold).view(*depth.shape)
 
-    # TODO
-    segmentation_pixel_mask = (gt_segmentation_map.sum(dim=0) > 0).view(*depth.shape)
+    # segmentation_pixel_mask = (gt_segmentation_map.sum(dim=0) > 0).view(*depth.shape)
     depth_pixel_mask = (gt_depth > 0.01).view(*depth.shape)
 
     l1_rgb = torch.abs(image * rgb_pixel_mask - gt_image * rgb_pixel_mask)
-
-    loss_semantics = torch.abs(
-        segmentation_map * segmentation_pixel_mask
-        - gt_segmentation_map * segmentation_pixel_mask
-    )
-
-    # loss_semantics = torch.nn.CrossEntropyLoss()(
-    #     segmentation_map * segmentation_pixel_mask,
-    #     gt_segmentation_map * segmentation_pixel_mask,
-    # )
-
-    # loss_semantics = torch.nn.CrossEntropyLoss()(
-    #     semantic_decoder(segmentation_map * segmentation_pixel_mask),
-    #     gt_segmentation_map * segmentation_pixel_mask,
-    # )
-
     l1_depth = torch.abs(depth * depth_pixel_mask - gt_depth * depth_pixel_mask)
+    # loss_semantics = torch.abs(
+    #     segmentation_map * segmentation_pixel_mask
+    #     - gt_segmentation_map * segmentation_pixel_mask
+    # )
+    loss_semantics = F.cross_entropy(
+        semantics,
+        gt_segmentation_label.view(1, -1),
+    )
 
     return (
         alpha * l1_rgb.mean()

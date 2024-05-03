@@ -12,6 +12,7 @@ class Camera(nn.Module):
         color,
         depth,
         segmentation_map,
+        segmentation_label,
         gt_T,
         projection_matrix,
         fx,
@@ -37,6 +38,7 @@ class Camera(nn.Module):
         self.original_image = color
         self.depth = depth
         self.segmentation_map = segmentation_map
+        self.segmentation_label = segmentation_label
         self.grad_mask = None
 
         self.fx = fx
@@ -67,12 +69,19 @@ class Camera(nn.Module):
     @staticmethod
     def init_from_dataset(dataset, is_semantic, idx, projection_matrix):
         if is_semantic:
-            gt_color, gt_depth, gt_segmentation_map, gt_pose = dataset[idx]
+            (
+                gt_color,
+                gt_depth,
+                gt_segmentation_map,
+                gt_segmentation_label,
+                gt_pose,
+            ) = dataset[idx]
             return Camera(
                 idx,
                 gt_color,
                 gt_depth,
                 gt_segmentation_map,
+                gt_segmentation_label,
                 gt_pose,
                 projection_matrix,
                 dataset.fx,
@@ -112,6 +121,7 @@ class Camera(nn.Module):
         ).transpose(0, 1)
         return Camera(
             uid,
+            None,
             None,
             None,
             None,
@@ -181,6 +191,8 @@ class Camera(nn.Module):
     def clean(self):
         self.original_image = None
         self.depth = None
+        self.segmentation_map = None
+        self.segmentation_label = None
         self.grad_mask = None
 
         self.cam_rot_delta = None

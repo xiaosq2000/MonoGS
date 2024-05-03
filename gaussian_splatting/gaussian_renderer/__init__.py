@@ -157,7 +157,7 @@ def _render(
 
 def _semantic_render(
     viewpoint_camera: Camera,
-    pc: GaussianModel,
+    pc,
     pipe,
     bg_color: torch.Tensor,
     scaling_modifier=1.0,
@@ -205,7 +205,9 @@ def _semantic_render(
         debug=False,
     )
 
-    rasterizer = SemanticGaussianRasterizer(raster_settings=raster_settings)
+    rasterizer = SemanticGaussianRasterizer(
+        raster_settings=raster_settings, semantic_decoder=pc.semantic_decoder
+    )
 
     means3D = pc.get_xyz
     means2D = screenspace_points
@@ -304,7 +306,6 @@ def _semantic_render(
                 rho=viewpoint_camera.cam_trans_delta,
             )
         )
-
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     return {
@@ -321,7 +322,7 @@ def _semantic_render(
 
 def render(
     viewpoint_camera: Camera,
-    pc: GaussianModel,
+    pc,
     pipe,
     bg_color: torch.Tensor,
     scaling_modifier=1.0,
