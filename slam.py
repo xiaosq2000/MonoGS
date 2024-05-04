@@ -162,7 +162,7 @@ class SLAM:
             backend_queue.put(["color_refinement"])
             while True:
                 if frontend_queue.empty():
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
                 data = frontend_queue.get()
                 if data[0] == "sync_backend" and frontend_queue.empty():
@@ -220,7 +220,7 @@ if __name__ == "__main__":
     save_dir = None
 
     if args.eval:
-        Log("Running MonoGS in Evaluation Mode")
+        Log("Running Semantic-3DGS-SLAM in Evaluation Mode")
         Log("Following config will be overriden")
         Log("\tsave_results=True")
         config["Results"]["save_results"] = True

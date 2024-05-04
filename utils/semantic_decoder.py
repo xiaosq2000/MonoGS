@@ -1,3 +1,4 @@
+import pickle
 import torch
 import colorsys
 import matplotlib.pyplot as plt
@@ -42,20 +43,21 @@ def generate_label_colors(num_labels):
     return label_colors
 
 
-def generate_segmentation_map(predict, color_palette, h, w):
-    masks = torch.argmax(predict, dim=1)
-    masks = masks.reshape(1, h, w)
-    labeled_image_array = (
-        masks.permute(1, 2, 0).squeeze(0).cpu().numpy().astype(np.uint8)
-    )
-    labeled_image_array = np.squeeze(labeled_image_array, axis=2)
-    height, width = labeled_image_array.shape
+def generate_segmentation_map(decoded_semantics, color_palette, h, w):
+    # Get the class indices with highest scores for each pixel
+    class_indices = torch.argmax(decoded_semantics, dim=1).cpu().numpy()
 
-    # Convert the labeled image array to RGB array using label_colors dictionary
-    segmentation_map = np.array(
-        [color_palette.get(label, (0, 0, 0)) for label in labeled_image_array.flatten()]
-    ).astype(np.uint8)
-    segmentation_map = segmentation_map.reshape((height, width, 3))
+    # Create an array of colors corresponding to class indices
+    colors = np.array(
+        [color_palette.get(label, (0, 0, 0)) for label in range(len(color_palette))],
+        dtype=np.uint8,
+    )
+
+    # Reshape class indices to match image dimensions
+    reshaped_indices = class_indices.reshape(h, w)
+
+    # Index the colors array with class indices to get the segmentation map
+    segmentation_map = colors[reshaped_indices]
 
     return segmentation_map
 
@@ -63,9 +65,15 @@ def generate_segmentation_map(predict, color_palette, h, w):
 class SemanticDecoder(nn.Module):
     def __init__(self, input_size=3, num_classes=200):
         super(SemanticDecoder, self).__init__()
-        self.fc1 = nn.Linear(input_size, num_classes, bias=True)
+        self.fc1 = nn.Linear(input_size, num_classes, bias=False)
         self.num_classes = num_classes
-        self.color_palette = generate_label_colors(self.num_classes)
+        # TODO
+        with open(
+            "/mnt/dev-ssd-8T/shuqixiao/data/tum_semantic/rgbd_dataset_freiburg3_long_office_household/color_palette.pkl",
+            "rb",
+        ) as f:
+            self.color_palette = pickle.load(f)
+        # self.color_palette = generate_label_colors(self.num_classes)
         self.idx = 0
 
     def forward(self, x: torch.Tensor):

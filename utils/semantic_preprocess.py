@@ -7,9 +7,12 @@ import os
 import random
 import colorsys
 from tqdm import tqdm
+import pickle
 
 
-def count_and_label_classes(image_path: str, color_to_index={}, min_pixels_per_mask=None):
+def count_and_label_classes(
+    image_path: str, color_to_index={}, min_pixels_per_mask=None
+):
     # Read the image
     image = Image.open(image_path)
 
@@ -158,16 +161,15 @@ if __name__ == "__main__":
         os.path.join(dst_dir, os.path.splitext(file)[0] + ".pt") for file in filenames
     ]
 
-    color_to_index = {}
     num_classes = 200
-    color_palette = generate_random_label_colors(num_classes)
+    color_to_index = {}
 
     for i, file in tqdm(enumerate(file_paths)):
         labeled_image, color_to_index, num_new_label, num_small_objects = (
             count_and_label_classes(file_paths[i], color_to_index)
         )
         tqdm.write(
-            f"Index {i}: number of objects = {len(set(color_to_index.values())) - 1}, number of new objects = {num_new_label}, number of small objects = {num_small_objects}"
+            f"Index {i}: number of objects = {len(set(color_to_index.values()))}, number of new objects = {num_new_label}, number of small objects = {num_small_objects}"
         )
         # one_hot_image = encode_one_hot(labeled_image, num_classes)
         labeled_image_tensor = torchvision.transforms.functional.pil_to_tensor(
@@ -183,4 +185,12 @@ if __name__ == "__main__":
 
         # generate_colorful_map(np.array(labeled_image), color_palette).show()
 
-    # print(one_hot_encoding.shape)
+    with open(os.path.join(dst_dir, os.path.pardir, "color_palette.pkl"), "wb") as f:
+        pickle.dump(
+            {v: k for k, v in color_to_index.items()}, f
+        )  # Interchange key and value
+
+    with open(os.path.join(dst_dir, os.path.pardir, "color_palette.pkl"), "rb") as f:
+        dic = pickle.load(f)
+
+    print(dic)

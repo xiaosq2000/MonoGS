@@ -170,7 +170,7 @@ class SLAM_GUI:
         self.axis_chbox.set_on_checked(self._on_axis_chbox)
         chbox_tile_3dobj.add_child(self.axis_chbox)
 
-        self.panel.add_child(gui.Label("Rendering options"))
+        self.panel.add_child(gui.Label("Rendering Options"))
         chbox_tile_geometry = gui.Horiz(0.5 * em, gui.Margins(margin))
 
         self.depth_chbox = gui.Checkbox("Depth")
@@ -189,15 +189,23 @@ class SLAM_GUI:
         self.elipsoid_chbox.checked = False
         chbox_tile_geometry.add_child(self.elipsoid_chbox)
 
-        self.segmentation_chbox = gui.Checkbox("Segmentation")
-        self.segmentation_chbox.checked = True
-        chbox_tile_geometry.add_child(self.segmentation_chbox)
+        self.panel.add_child(chbox_tile_geometry)
+
+        self.panel.add_child(gui.Label("Semantic Rendering Options"))
+        chbox_tile_semantic_geometry = gui.Horiz(0.5 * em, gui.Margins(margin))
+
+        self.semantic_feature_chbox = gui.Checkbox("Semantic Feature")
+        self.semantic_feature_chbox.checked = False
+        chbox_tile_semantic_geometry.add_child(self.semantic_feature_chbox)
+
+        self.segmentation_map_chbox = gui.Checkbox("Segmentation Map")
+        self.segmentation_map_chbox.checked = True
+        chbox_tile_semantic_geometry.add_child(self.segmentation_map_chbox)
 
         self.elipsoid_segmentation_chbox = gui.Checkbox("Semantic Elipsoid Shader")
         self.elipsoid_segmentation_chbox.checked = False
-        chbox_tile_geometry.add_child(self.elipsoid_segmentation_chbox)
-
-        self.panel.add_child(chbox_tile_geometry)
+        chbox_tile_semantic_geometry.add_child(self.elipsoid_segmentation_chbox)
+        self.panel.add_child(chbox_tile_semantic_geometry)
 
         slider_tile = gui.Horiz(0.5 * em, gui.Margins(margin))
         slider_label = gui.Label("Gaussian Scale (0-1)")
@@ -662,27 +670,30 @@ class SLAM_GUI:
             cv2.flip(img, 0, img)
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
-        elif self.segmentation_chbox.checked and self.is_semantic:
-            # segmentation_map = (
-            #     (
-            #         torch.clamp(
-            #             results["render"],
-            #             min=0,
-            #             max=1.0,
-            #         )
-            #         * 255
-            #     )
-            #     .byte()
-            #     .permute(1, 2, 0)
-            #     .contiguous()
-            #     .cpu()
-            #     .numpy()
-            # )
+        elif self.semantic_feature_chbox.checked and self.is_semantic:
+            semantic_feature = (
+                (
+                    torch.clamp(
+                        results["render_semantics"],
+                        min=0,
+                        max=1.0,
+                    )
+                    * 255
+                )
+                .byte()
+                .permute(1, 2, 0)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
+            render_img = o3d.geometry.Image(semantic_feature)
+        elif self.segmentation_map_chbox.checked and self.is_semantic:
+            _, h, w = results["render"].shape
             segmentation_map = generate_segmentation_map(
-                results["render_semantics"],
+                results["render_decoded_semantics"],
                 self.semantic_decoder.color_palette,
-                results["render"].shape[1],
-                results["render"].shape[2],
+                h,
+                w,
             )
             render_img = o3d.geometry.Image(segmentation_map)
         elif self.elipsoid_segmentation_chbox.checked and self.is_semantic:
@@ -756,7 +767,7 @@ class SLAM_GUI:
 
     def _update_thread(self):
         while True:
-            time.sleep(0.1)
+            time.sleep(0.01)
             self.step += 1
             if self.process_finished:
                 o3d.visualization.gui.Application.instance.quit()

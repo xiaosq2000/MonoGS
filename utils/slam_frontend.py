@@ -171,14 +171,14 @@ class FrontEnd(mp.Process):
                 render_pkg["opacity"],
             )
             if self.gaussians.is_semantic:
-                segmentation_map = render_pkg["render_semantics"]
+                decoded_semantics = render_pkg["render_decoded_semantics"]
             else:
-                segmentation_map = None
+                decoded_semantics = None
 
             pose_optimizer.zero_grad()
 
             loss_tracking = get_loss_tracking(
-                self.config, image, segmentation_map, depth, opacity, viewpoint
+                self.config, image, decoded_semantics, depth, opacity, viewpoint
             )
             loss_tracking.backward()
 
@@ -384,15 +384,15 @@ class FrontEnd(mp.Process):
                     break
 
                 if self.requested_init:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
                 if self.single_thread and self.requested_keyframe > 0:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
                 if not self.initialized and self.requested_keyframe > 0:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
                 viewpoint = Camera.init_from_dataset(
@@ -501,7 +501,7 @@ class FrontEnd(mp.Process):
                 if create_kf:
                     # throttle at 3fps when keyframe is added
                     duration = tic.elapsed_time(toc)
-                    time.sleep(max(0.1, 1.0 / 3.0 - duration / 1000))
+                    time.sleep(max(0.01, 1.0 / 3.0 - duration / 1000))
             else:
                 data = self.frontend_queue.get()
                 if data[0] == "sync_backend":

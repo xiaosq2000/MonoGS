@@ -111,10 +111,10 @@ class BackEnd(mp.Process):
 
             if self.gaussians.is_semantic:
                 semantics = render_pkg["render_semantics"]
-                if render_pkg["render_semantics"] is None:
-                    print("WTF?")
+                decoded_semantics = render_pkg["render_decoded_semantics"]
             else:
                 semantics = None
+                decoded_semantics = None
 
             loss_init = get_loss_mapping(
                 config=self.config,
@@ -124,7 +124,7 @@ class BackEnd(mp.Process):
                 opacity=opacity,
                 initialization=True,
                 semantics=semantics,
-                semantic_decoder=self.gaussians.semantic_decoder,
+                decoded_semantics=decoded_semantics,
             )
             loss_init.backward()
 
@@ -206,18 +206,20 @@ class BackEnd(mp.Process):
                     render_pkg["n_touched"],
                 )
                 if self.gaussians.is_semantic:
-                    segmentation_map = render_pkg["render_semantics"]
+                    semantics = render_pkg["render_semantics"]
+                    decoded_semantics = render_pkg["render_decoded_semantics"]
                 else:
-                    segmentation_map = None
+                    semantics = None
+                    decoded_semantics = None
 
                 loss_mapping += get_loss_mapping(
-                    self.config,
-                    image,
-                    segmentation_map,
-                    depth,
-                    viewpoint,
-                    opacity,
-                    semantic_decoder=self.gaussians.semantic_decoder,
+                    config=self.config,
+                    image=image,
+                    semantics=semantics,
+                    decoded_semantics=decoded_semantics,
+                    depth=depth,
+                    viewpoint=viewpoint,
+                    opacity=opacity,
                 )
 
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
@@ -248,18 +250,20 @@ class BackEnd(mp.Process):
                     render_pkg["n_touched"],
                 )
                 if self.gaussians.is_semantic:
-                    segmentation_map = render_pkg["render_semantics"]
+                    semantics = render_pkg["render_semantics"]
+                    decoded_semantics = render_pkg["render_decoded_semantics"]
                 else:
-                    segmentation_map = None
+                    semantics = None
+                    decoded_semantics = None
 
                 loss_mapping += get_loss_mapping(
-                    self.config,
-                    image,
-                    segmentation_map,
-                    depth,
-                    viewpoint,
-                    opacity,
-                    semantic_decoder=self.gaussians.semantic_decoder,
+                    config=self.config,
+                    image=image,
+                    semantics=semantics,
+                    decoded_semantics=decoded_semantics,
+                    depth=depth,
+                    viewpoint=viewpoint,
+                    opacity=opacity,
                 )
 
                 viewspace_point_tensor_acm.append(viewspace_point_tensor)
@@ -408,14 +412,14 @@ class BackEnd(mp.Process):
         while True:
             if self.backend_queue.empty():
                 if self.pause:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
                 if len(self.current_window) == 0:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
 
                 if self.single_thread:
-                    time.sleep(0.1)
+                    time.sleep(0.01)
                     continue
                 self.map(self.current_window)
                 if self.last_sent >= 10:

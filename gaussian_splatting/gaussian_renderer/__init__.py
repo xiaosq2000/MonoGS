@@ -273,7 +273,7 @@ def _semantic_render(
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
     if mask is not None:
-        rendered_image, rendered_semantics, radii, depth, opacity = rasterizer(
+        rendered_image, semantics, decoded_semantics, radii, depth, opacity = rasterizer(
             means3D=means3D[mask],
             means2D=means2D[mask],
             shs=shs[mask],
@@ -290,7 +290,7 @@ def _semantic_render(
             rho=viewpoint_camera.cam_trans_delta,
         )
     else:
-        rendered_image, rendered_semantics, radii, depth, opacity, n_touched = (
+        rendered_image, semantics, decoded_semantics, radii, depth, opacity, n_touched = (
             rasterizer(
                 means3D=means3D,
                 means2D=means2D,
@@ -310,7 +310,8 @@ def _semantic_render(
     # They will be excluded from value updates used in the splitting criteria.
     return {
         "render": rendered_image,
-        "render_semantics": rendered_semantics,
+        "render_semantics": semantics,
+        "render_decoded_semantics": decoded_semantics,
         "viewspace_points": screenspace_points,
         "visibility_filter": radii > 0,
         "radii": radii,

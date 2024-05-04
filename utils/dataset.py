@@ -125,8 +125,9 @@ class TUMParser:
 class TUMSemanticParser:
     def __init__(self, input_folder):
         self.input_folder = input_folder
-        self.load_poses(self.input_folder, frame_rate=32)
-        self.n_img = len(self.color_paths)
+        # TODO
+        self.num = float('inf')
+        self.load_poses(self.input_folder, num=self.num, frame_rate=32)
 
     def parse_list(self, filepath, skiprows=0):
         data = np.loadtxt(filepath, delimiter=" ", dtype=np.unicode_, skiprows=skiprows)
@@ -151,7 +152,9 @@ class TUMSemanticParser:
 
         return associations
 
-    def load_poses(self, datapath, frame_rate=-1):
+    def load_poses(self, datapath, num, frame_rate=-1):
+        if num is None or num <= 0:
+            num = sys.maxint
         if os.path.isfile(os.path.join(datapath, "groundtruth.txt")):
             pose_list = os.path.join(datapath, "groundtruth.txt")
         elif os.path.isfile(os.path.join(datapath, "pose.txt")):
@@ -175,7 +178,7 @@ class TUMSemanticParser:
         associations = self.associate_frames(tstamp_image, tstamp_depth, tstamp_pose)
 
         indicies = [0]
-        for i in range(1, len(associations)):
+        for i in range(1, min(num, len(associations))):
             t0 = tstamp_image[associations[indicies[-1]][0]]
             t1 = tstamp_image[associations[i][0]]
             if t1 - t0 > 1.0 / frame_rate:
@@ -592,7 +595,6 @@ class TUMSemanticDataset(MonocularSemanticDataset):
         super().__init__(args, path, config)
         dataset_path = config["Dataset"]["dataset_path"]
         parser = TUMSemanticParser(dataset_path)
-        self.num_imgs = parser.n_img
         self.color_paths = parser.color_paths
         self.depth_paths = parser.depth_paths
         self.segmentation_map_paths = parser.segmentation_map_paths
