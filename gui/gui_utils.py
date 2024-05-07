@@ -171,12 +171,14 @@ class ParamsGUI:
         self,
         pipe=None,
         background=None,
+        background_semantics=None,
         gaussians=None,
         q_main2vis=None,
         q_vis2main=None,
     ):
         self.pipe = pipe
         self.background = background
+        self.background_semantics = background_semantics
         self.gaussians = gaussians
         self.q_main2vis = q_main2vis
         self.q_vis2main = q_vis2main

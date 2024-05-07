@@ -47,6 +47,7 @@ class SLAM_GUI:
         self.gaussian_cur = None
         self.pipe = None
         self.background = None
+        self.background_semantics = None
 
         self.init = False
         self.kf_window = None
@@ -54,6 +55,7 @@ class SLAM_GUI:
 
         if params_gui is not None:
             self.background = params_gui.background
+            self.background_semantics = params_gui.background_semantics
             self.gaussian_cur = params_gui.gaussians
             self.init = True
             self.q_main2vis = params_gui.q_main2vis
@@ -591,6 +593,7 @@ class SLAM_GUI:
                 self.gaussian_cur,
                 self.pipe,
                 self.background,
+                self.background_semantics,
                 self.scaling_slider.double_value,
             )
             self.gaussian_cur.get_features = features
@@ -600,6 +603,7 @@ class SLAM_GUI:
                 self.gaussian_cur,
                 self.pipe,
                 self.background,
+                self.background_semantics,
                 self.scaling_slider.double_value,
             )
         return rendering_data

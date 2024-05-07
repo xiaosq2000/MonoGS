@@ -63,7 +63,7 @@ def generate_segmentation_map(decoded_semantics, color_palette, h, w):
 
 
 class SemanticDecoder(nn.Module):
-    def __init__(self, semantic_embedding_dim=3, num_classes=200):
+    def __init__(self, semantic_embedding_dim=16, num_classes=200):
         super(SemanticDecoder, self).__init__()
         self.num_classes = num_classes
         self.semantic_embedding_dim = semantic_embedding_dim
@@ -98,7 +98,7 @@ if __name__ == "__main__":
     if not os.path.exists(target):
         raise ValueError(f"Error: {target} does not exist.")
 
-    semantic_embedding_dim = 3
+    semantic_embedding_dim = 16
     num_classes = 5
     input = torch.randn(
         (semantic_embedding_dim, 960, 1080), dtype=torch.float32, device="cuda"

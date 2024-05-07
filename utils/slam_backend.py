@@ -22,6 +22,7 @@ class BackEnd(mp.Process):
         self.pipeline_params = None
         self.opt_params = None
         self.background = None
+        self.background_semantics = None
         self.cameras_extent = None
         self.frontend_queue = None
         self.backend_queue = None
@@ -89,7 +90,7 @@ class BackEnd(mp.Process):
         for mapping_iteration in range(self.init_itr_num):
             self.iteration_count += 1
             render_pkg = render(
-                viewpoint, self.gaussians, self.pipeline_params, self.background
+                viewpoint, self.gaussians, self.pipeline_params, self.background, self.background_semantics
             )
             (
                 image,
@@ -186,7 +187,7 @@ class BackEnd(mp.Process):
                 viewpoint = viewpoint_stack[cam_idx]
                 keyframes_opt.append(viewpoint)
                 render_pkg = render(
-                    viewpoint, self.gaussians, self.pipeline_params, self.background
+                    viewpoint, self.gaussians, self.pipeline_params, self.background, self.background_semantics
                 )
                 (
                     image,
@@ -230,7 +231,7 @@ class BackEnd(mp.Process):
             for cam_idx in torch.randperm(len(random_viewpoint_stack))[:2]:
                 viewpoint = random_viewpoint_stack[cam_idx]
                 render_pkg = render(
-                    viewpoint, self.gaussians, self.pipeline_params, self.background
+                    viewpoint, self.gaussians, self.pipeline_params, self.background, self.background_semantics
                 )
                 (
                     image,
@@ -372,7 +373,7 @@ class BackEnd(mp.Process):
             )
             viewpoint_cam = self.viewpoints[viewpoint_cam_idx]
             render_pkg = render(
-                viewpoint_cam, self.gaussians, self.pipeline_params, self.background
+                viewpoint_cam, self.gaussians, self.pipeline_params, self.background, self.background_semantics
             )
             image, visibility_filter, radii = (
                 render_pkg["render"],

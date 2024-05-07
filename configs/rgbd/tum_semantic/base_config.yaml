@@ -18,12 +18,14 @@ Dataset:
   point_size: 0.01
 
 Training:
-  #
+  # <<< semantic <<<
+  semantic_embedding_dim: 8
   tracking_alpha: 0.90
   tracking_beta: 0.00
   mapping_alpha: 0.85
   mapping_beta: 0.05
-  #Initialization
+  # >>> semantic >>>
+  # Initialization
   init_itr_num: 1050
   init_gaussian_update: 100
   init_gaussian_reset: 500

@@ -65,7 +65,10 @@ class GaussianModel:
 
         self.config = config
         self.is_semantic = self.config["Dataset"]["semantic"]
-        self.semantic_decoder = SemanticDecoder().to("cuda")
+        self.semantic_embedding_dim = self.config["Training"]["semantic_embedding_dim"]
+        self.semantic_decoder = SemanticDecoder(
+            semantic_embedding_dim=self.semantic_embedding_dim
+        ).to("cuda")
 
         self.ply_input = None
 
@@ -120,9 +123,10 @@ class GaussianModel:
         image_ab = torch.clamp(image_ab, 0.0, 1.0)
         rgb_raw = (image_ab * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy()
         if self.is_semantic:
-            segmentation_map_ab = (
-                torch.exp(cam.exposure_a)
-            ) * cam.segmentation_map + cam.exposure_b
+            # segmentation_map_ab = (
+            #     torch.exp(cam.exposure_a)
+            # ) * cam.segmentation_map + cam.exposure_b
+            segmentation_map_ab = cam.segmentation_map
             segmentation_map_ab = torch.clamp(segmentation_map_ab, 0.0, 1.0)
             segmentation_map_raw = (
                 (segmentation_map_ab * 255)
@@ -251,18 +255,25 @@ class GaussianModel:
             )
             self.semantic_ply_input = semantic_pcd
             # TODO: No need to use SH to encode semantics
-            fused_semantics = RGB2SH(
+            # fused_semantics = RGB2SH(
+            #     torch.from_numpy(np.asarray(semantic_pcd.colors)).float().cuda()
+            # )
+            # semantic_features = (
+            #     torch.zeros(
+            #         (fused_semantics.shape[0], 3, (self.max_sh_degree + 1) ** 2)
+            #     )
+            #     .float()
+            #     .cuda()
+            # )
+            # semantic_features[:, :3, 0] = fused_semantics
+            # semantic_features[:, 3:, 1:] = 0.0
+
+            fused_semantics = (
                 torch.from_numpy(np.asarray(semantic_pcd.colors)).float().cuda()
             )
             semantic_features = (
-                torch.zeros(
-                    (fused_semantics.shape[0], 3, (self.max_sh_degree + 1) ** 2)
-                )
-                .float()
-                .cuda()
+                torch.zeros((fused_semantics.shape[0], self.semantic_embedding_dim, 1)).float().cuda()
             )
-            semantic_features[:, :3, 0] = fused_semantics
-            semantic_features[:, 3:, 1:] = 0.0
 
         dist2 = (
             torch.clamp_min(

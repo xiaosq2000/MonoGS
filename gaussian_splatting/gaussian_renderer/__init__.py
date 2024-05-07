@@ -158,7 +158,7 @@ def _render(
 
 def _semantic_render(
     viewpoint_camera: Camera,
-    pc,
+    pc: GaussianModel,
     pipe,
     bg_color: torch.Tensor,
     bg_semantics: torch.Tensor,
@@ -323,14 +323,12 @@ def render(
     pc,
     pipe,
     bg_color,
+    bg_semantics,
     scaling_modifier=1.0,
     override_color=None,
     mask=None,
 ):
     if pc.is_semantic:
-        # TODO: load from slam.py
-        bg_semantics = [0 for _ in range(3)]
-        bg_semantics = torch.tensor(bg_semantics, dtype=torch.float32, device="cuda")
         return _semantic_render(
             viewpoint_camera=viewpoint_camera,
             pc=pc,

@@ -60,8 +60,11 @@ class SLAM:
         self.gaussians.training_setup(opt_params)
         bg_color = [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        bg_semantics = [0 for _ in range(3)]
-        self.background_semantics = torch.tensor(bg_semantics, dtype=torch.float32, device="cuda")
+        self.background_semantics = torch.zeros(
+            self.config["Training"]["semantic_embedding_dim"],
+            dtype=torch.float32,
+            device="cuda",
+        )
 
         frontend_queue = mp.Queue()
         backend_queue = mp.Queue()
@@ -101,17 +104,20 @@ class SLAM:
         self.params_gui = gui_utils.ParamsGUI(
             pipe=self.pipeline_params,
             background=self.background,
+            background_semantics=self.background_semantics,
             gaussians=self.gaussians,
             q_main2vis=q_main2vis,
             q_vis2main=q_vis2main,
         )
 
         backend_process = mp.Process(target=self.backend.run)
+        print(f"backend_process.name, {backend_process.name}")
         if self.use_gui:
             gui_process = mp.Process(
                 target=slam_gui.run,
                 args=(self.params_gui, self.gaussians.semantic_decoder),
             )
+            print(f"gui_process.name, {gui_process.name}")
             gui_process.start()
             time.sleep(5)
 
@@ -146,6 +152,7 @@ class SLAM:
                 self.save_dir,
                 self.pipeline_params,
                 self.background,
+                self.background_semantics,
                 kf_indices=kf_indices,
                 iteration="before_opt",
             )
@@ -181,6 +188,7 @@ class SLAM:
                 self.save_dir,
                 self.pipeline_params,
                 self.background,
+                self.background_semantics,
                 kf_indices=kf_indices,
                 iteration="after_opt",
             )
