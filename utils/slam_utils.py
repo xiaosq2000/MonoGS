@@ -243,13 +243,13 @@ def get_loss_mapping_semantic_rgbd(
     rgb_boundary_threshold = config["Training"]["rgb_boundary_threshold"]
 
     gt_image = viewpoint.original_image.cuda()
-    gt_segmentation_map = viewpoint.segmentation_map.cuda()
+    # gt_segmentation_map = viewpoint.segmentation_map.cuda()
     gt_segmentation_label = viewpoint.segmentation_label.cuda()
     gt_depth = torch.from_numpy(viewpoint.depth).to(
         dtype=torch.float32, device=image.device
     )[None]
     rgb_pixel_mask = (gt_image.sum(dim=0) > rgb_boundary_threshold).view(*depth.shape)
-    # segmentation_pixel_mask = (gt_segmentation_map.sum(dim=0) > 0).view(*depth.shape)
+    # TODO: semantic_pixel_mask
     depth_pixel_mask = (gt_depth > 0.01).view(*depth.shape)
     l1_rgb = torch.abs(image * rgb_pixel_mask - gt_image * rgb_pixel_mask)
     l1_depth = torch.abs(depth * depth_pixel_mask - gt_depth * depth_pixel_mask)

@@ -63,6 +63,7 @@ def _render(
         tanfovx=tanfovx,
         tanfovy=tanfovy,
         background_color=bg_color,
+        background_semantics=None,
         scale_modifier=scaling_modifier,
         viewmatrix=viewpoint_camera.world_view_transform,
         projmatrix=viewpoint_camera.full_proj_transform,
@@ -70,7 +71,7 @@ def _render(
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
-        debug=True,
+        debug=False,
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -160,6 +161,7 @@ def _semantic_render(
     pc,
     pipe,
     bg_color: torch.Tensor,
+    bg_semantics: torch.Tensor,
     scaling_modifier=1.0,
     override_color=None,
     mask=None,
@@ -195,6 +197,7 @@ def _semantic_render(
         tanfovx=tanfovx,
         tanfovy=tanfovy,
         background_color=bg_color,
+        background_semantics=bg_semantics,
         scale_modifier=scaling_modifier,
         viewmatrix=viewpoint_camera.world_view_transform,
         projmatrix=viewpoint_camera.full_proj_transform,
@@ -202,7 +205,7 @@ def _semantic_render(
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
-        debug=False,
+        debug=True,
     )
 
     rasterizer = SemanticGaussianRasterizer(
@@ -251,60 +254,54 @@ def _semantic_render(
     # TODO
     semantic_shs = None
     semantics_precomp = None
-    if semantics_precomp is None:
-        if pipe.convert_SHs_python:
-            semantic_shs_view = pc.get_semantic_features.transpose(1, 2).view(
-                -1, 3, (pc.max_sh_degree + 1) ** 2
-            )
-            semantic_dir_pp = pc.get_xyz - viewpoint_camera.camera_center.repeat(
-                pc.get_semantic_features.shape[0], 1
-            )
-            semantic_dir_pp_normalized = semantic_dir_pp / semantic_dir_pp.norm(
-                dim=1, keepdim=True
-            )
-            semantic_sh2rgb = eval_sh(
-                pc.active_sh_degree, semantic_shs_view, semantic_dir_pp_normalized
-            )
-            semantics_precomp = torch.clamp_min(semantic_sh2rgb + 0.5, 0.0)
-        else:
-            semantic_shs = pc.get_semantic_features
-    else:
-        raise ValueError("TODO: Semantics Precomputation is not support yet.")
+    semantic_shs = pc.get_semantic_features
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
     if mask is not None:
-        rendered_image, semantics, decoded_semantics, radii, depth, opacity = rasterizer(
-            means3D=means3D[mask],
-            means2D=means2D[mask],
-            shs=shs[mask],
-            semantic_shs=semantic_shs[mask],
-            colors_precomp=colors_precomp[mask] if colors_precomp is not None else None,
-            semantics_precomp=semantics_precomp[mask]
-            if semantics_precomp is not None
-            else None,
-            opacities=opacity[mask],
-            scales=scales[mask],
-            rotations=rotations[mask],
-            cov3D_precomp=cov3D_precomp[mask] if cov3D_precomp is not None else None,
-            theta=viewpoint_camera.cam_rot_delta,
-            rho=viewpoint_camera.cam_trans_delta,
-        )
-    else:
-        rendered_image, semantics, decoded_semantics, radii, depth, opacity, n_touched = (
+        rendered_image, semantics, decoded_semantics, radii, depth, opacity = (
             rasterizer(
-                means3D=means3D,
-                means2D=means2D,
-                shs=shs,
-                semantic_shs=semantic_shs,
-                colors_precomp=colors_precomp,
-                semantics_precomp=semantics_precomp,
-                opacities=opacity,
-                scales=scales,
-                rotations=rotations,
-                cov3D_precomp=cov3D_precomp,
+                means3D=means3D[mask],
+                means2D=means2D[mask],
+                shs=shs[mask],
+                semantic_shs=semantic_shs[mask],
+                colors_precomp=colors_precomp[mask]
+                if colors_precomp is not None
+                else None,
+                semantics_precomp=semantics_precomp[mask]
+                if semantics_precomp is not None
+                else None,
+                opacities=opacity[mask],
+                scales=scales[mask],
+                rotations=rotations[mask],
+                cov3D_precomp=cov3D_precomp[mask]
+                if cov3D_precomp is not None
+                else None,
                 theta=viewpoint_camera.cam_rot_delta,
                 rho=viewpoint_camera.cam_trans_delta,
             )
+        )
+    else:
+        (
+            rendered_image,
+            semantics,
+            decoded_semantics,
+            radii,
+            depth,
+            opacity,
+            n_touched,
+        ) = rasterizer(
+            means3D=means3D,
+            means2D=means2D,
+            shs=shs,
+            semantic_shs=semantic_shs,
+            colors_precomp=colors_precomp,
+            semantics_precomp=semantics_precomp,
+            opacities=opacity,
+            scales=scales,
+            rotations=rotations,
+            cov3D_precomp=cov3D_precomp,
+            theta=viewpoint_camera.cam_rot_delta,
+            rho=viewpoint_camera.cam_trans_delta,
         )
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
@@ -325,14 +322,24 @@ def render(
     viewpoint_camera: Camera,
     pc,
     pipe,
-    bg_color: torch.Tensor,
+    bg_color,
     scaling_modifier=1.0,
     override_color=None,
     mask=None,
 ):
     if pc.is_semantic:
+        # TODO: load from slam.py
+        bg_semantics = [0 for _ in range(3)]
+        bg_semantics = torch.tensor(bg_semantics, dtype=torch.float32, device="cuda")
         return _semantic_render(
-            viewpoint_camera, pc, pipe, bg_color, scaling_modifier, override_color, mask
+            viewpoint_camera=viewpoint_camera,
+            pc=pc,
+            pipe=pipe,
+            bg_color=bg_color,
+            bg_semantics=bg_semantics,
+            scaling_modifier=scaling_modifier,
+            override_color=override_color,
+            mask=mask,
         )
     else:
         return _render(

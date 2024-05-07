@@ -60,6 +60,8 @@ class SLAM:
         self.gaussians.training_setup(opt_params)
         bg_color = [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
+        bg_semantics = [0 for _ in range(3)]
+        self.background_semantics = torch.tensor(bg_semantics, dtype=torch.float32, device="cuda")
 
         frontend_queue = mp.Queue()
         backend_queue = mp.Queue()
@@ -76,6 +78,7 @@ class SLAM:
 
         self.frontend.dataset = self.dataset
         self.frontend.background = self.background
+        self.frontend.background_semantics = self.background_semantics
         self.frontend.pipeline_params = self.pipeline_params
         self.frontend.frontend_queue = frontend_queue
         self.frontend.backend_queue = backend_queue
@@ -85,6 +88,7 @@ class SLAM:
 
         self.backend.gaussians = self.gaussians
         self.backend.background = self.background
+        self.backend.background_semantics = self.background_semantics
         self.backend.cameras_extent = 6.0
         self.backend.pipeline_params = self.pipeline_params
         self.backend.opt_params = self.opt_params
