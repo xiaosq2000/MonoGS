@@ -1,0 +1,5 @@
+inherit_from: "configs/rgbd/replica_semantic/base_config.yaml"
+Dataset:
+  dataset_path: "datasets/replica_semantic/room0/"
+  segmentation_color_palatte_path: "datasets/replica_semantic/room0/color_palette.pkl"
+  single_thread: False

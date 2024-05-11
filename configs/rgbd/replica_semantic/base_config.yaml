@@ -1,27 +1,41 @@
-## SLAM parameters
 Results:
   save_results: True
   save_dir: "results"
   save_trj: True
-  save_trj_kf_intv: 5
+  save_trj_kf_intv: 20
   use_gui: True
   eval_rendering: True
   use_wandb: False
 
 Dataset:
   # <<< semantic <<<
-  type: 'tum_semantic'
+  type: 'replica_semantic'
   semantic: True 
   # >>> semantic >>>
   sensor_type: 'depth'
-  pcd_downsample: 128
+  pcd_downsample: 64
   pcd_downsample_init: 32
   adaptive_pointsize: True
-  point_size: 0.01
+  point_size: 0.07
+  Calibration:
+    fx: 600.0
+    fy: 600.0
+    cx: 599.5
+    cy: 339.5
+    k1: 0.0
+    k2: 0.0
+    p1: 0.0
+    p2: 0.0
+    k3: 0.0
+    width: 1200
+    height: 680
+    depth_scale: 6553.5
+    distorted: False
+
 
 Training:
   # <<< semantic <<<
-  semantic_embedding_dim: 8
+  semantic_embedding_dim: 6
   num_classes: 200
   tracking_alpha: 0.85
   tracking_beta: 0.05
@@ -41,25 +55,23 @@ Training:
   gaussian_extent: 1.0
   gaussian_reset: 2001
   size_threshold: 20
-  kf_interval: 5
-  window_size: 8
-  pose_window: 3
-  edge_threshold: 1.1
+  kf_interval: 4
+  window_size: 10
+  pose_window: 5
+  edge_threshold: 4
   rgb_boundary_threshold: 0.01
-  kf_translation: 0.08
-  kf_min_translation: 0.05
-  kf_overlap: 0.9
-  kf_cutoff: 0.3
+
+  kf_translation: 0.04
+  kf_min_translation: 0.02
+  kf_overlap: 0.95
   prune_mode: 'slam'
-  single_thread: False
+  single_thread: True
   spherical_harmonics: False
   lr:
     cam_rot_delta: 0.003
     cam_trans_delta: 0.001
 
 
-
-## 3DGS default parameters
 opt_params:
   iterations: 30000
   position_lr_init: 0.00016
@@ -89,7 +101,7 @@ model_params:
   resolution: -1
   white_background: False
   data_device: "cuda"
-
+  
 pipeline_params:
   convert_SHs_python: False
   compute_cov3D_python: False

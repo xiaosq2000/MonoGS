@@ -65,10 +65,18 @@ class GaussianModel:
 
         self.config = config
         self.is_semantic = self.config["Dataset"]["semantic"]
-        self.semantic_embedding_dim = self.config["Training"]["semantic_embedding_dim"]
-        self.semantic_decoder = SemanticDecoder(
-            semantic_embedding_dim=self.semantic_embedding_dim
-        ).to("cuda")
+        if self.is_semantic:
+            self.semantic_embedding_dim = self.config["Training"][
+                "semantic_embedding_dim"
+            ]
+            self.num_classes = self.config["Training"]["num_classes"]
+            self.semantic_decoder = SemanticDecoder(
+                semantic_embedding_dim=self.semantic_embedding_dim,
+                num_classes=self.num_classes,
+                color_palette_path=self.config["Dataset"][
+                    "segmentation_color_palatte_path"
+                ],
+            ).to("cuda")
 
         self.ply_input = None
 
@@ -272,7 +280,9 @@ class GaussianModel:
                 torch.from_numpy(np.asarray(semantic_pcd.colors)).float().cuda()
             )
             semantic_features = (
-                torch.zeros((fused_semantics.shape[0], self.semantic_embedding_dim, 1)).float().cuda()
+                torch.zeros((fused_semantics.shape[0], self.semantic_embedding_dim, 1))
+                .float()
+                .cuda()
             )
 
         dist2 = (

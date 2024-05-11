@@ -3,7 +3,8 @@ import rich
 _log_styles = {
     "Semantic-3DGS-SLAM": "bold green",
     "GUI": "bold magenta",
-    "Eval": "bold red",
+    "Eval": "bold yellow",
+    "Error": "bold red",
 }
 
 

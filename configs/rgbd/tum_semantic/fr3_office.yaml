@@ -2,6 +2,7 @@ inherit_from: "configs/rgbd/tum_semantic/base_config.yaml"
 
 Dataset:
   dataset_path: "datasets/tum_semantic/rgbd_dataset_freiburg3_long_office_household"
+  segmentation_color_palatte_path: "datasets/tum_semantic/rgbd_dataset_freiburg3_long_office_household/color_palette.pkl"
   Calibration:
     fx: 535.4
     fy: 539.2

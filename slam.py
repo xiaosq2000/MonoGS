@@ -111,13 +111,11 @@ class SLAM:
         )
 
         backend_process = mp.Process(target=self.backend.run)
-        print(f"backend_process.name, {backend_process.name}")
         if self.use_gui:
             gui_process = mp.Process(
                 target=slam_gui.run,
                 args=(self.params_gui, self.gaussians.semantic_decoder),
             )
-            print(f"gui_process.name, {gui_process.name}")
             gui_process.start()
             time.sleep(5)
 
@@ -236,8 +234,8 @@ if __name__ == "__main__":
         Log("Following config will be overriden")
         Log("\tsave_results=True")
         config["Results"]["save_results"] = True
-        Log("\tuse_gui=True")
-        config["Results"]["use_gui"] = True
+        Log("\tuse_gui=False")
+        config["Results"]["use_gui"] = False
         Log("\teval_rendering=True")
         config["Results"]["eval_rendering"] = True
         Log("\tuse_wandb=True")

@@ -205,7 +205,7 @@ def _semantic_render(
         sh_degree=pc.active_sh_degree,
         campos=viewpoint_camera.camera_center,
         prefiltered=False,
-        debug=True,
+        debug=False,
     )
 
     rasterizer = SemanticGaussianRasterizer(
@@ -258,33 +258,36 @@ def _semantic_render(
 
     # Rasterize visible Gaussians to image, obtain their radii (on screen).
     if mask is not None:
-        rendered_image, semantics, decoded_semantics, radii, depth, opacity = (
-            rasterizer(
-                means3D=means3D[mask],
-                means2D=means2D[mask],
-                shs=shs[mask],
-                semantic_shs=semantic_shs[mask],
-                colors_precomp=colors_precomp[mask]
-                if colors_precomp is not None
-                else None,
-                semantics_precomp=semantics_precomp[mask]
-                if semantics_precomp is not None
-                else None,
-                opacities=opacity[mask],
-                scales=scales[mask],
-                rotations=rotations[mask],
-                cov3D_precomp=cov3D_precomp[mask]
-                if cov3D_precomp is not None
-                else None,
-                theta=viewpoint_camera.cam_rot_delta,
-                rho=viewpoint_camera.cam_trans_delta,
-            )
+        (
+            rendered_image,
+            semantics,
+            decoded_semantics,
+            softmax_decoded_semantics,
+            radii,
+            depth,
+            opacity,
+        ) = rasterizer(
+            means3D=means3D[mask],
+            means2D=means2D[mask],
+            shs=shs[mask],
+            semantic_shs=semantic_shs[mask],
+            colors_precomp=colors_precomp[mask] if colors_precomp is not None else None,
+            semantics_precomp=semantics_precomp[mask]
+            if semantics_precomp is not None
+            else None,
+            opacities=opacity[mask],
+            scales=scales[mask],
+            rotations=rotations[mask],
+            cov3D_precomp=cov3D_precomp[mask] if cov3D_precomp is not None else None,
+            theta=viewpoint_camera.cam_rot_delta,
+            rho=viewpoint_camera.cam_trans_delta,
         )
     else:
         (
             rendered_image,
             semantics,
             decoded_semantics,
+            softmax_decoded_semantics,
             radii,
             depth,
             opacity,
@@ -309,6 +312,7 @@ def _semantic_render(
         "render": rendered_image,
         "render_semantics": semantics,
         "render_decoded_semantics": decoded_semantics,
+        "render_softmax_decoded_semantics": softmax_decoded_semantics,
         "viewspace_points": screenspace_points,
         "visibility_filter": radii > 0,
         "radii": radii,

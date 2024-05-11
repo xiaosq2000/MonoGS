@@ -1,3 +1,4 @@
+import sys
 import csv
 import glob
 import os
@@ -37,6 +38,45 @@ class ReplicaParser:
             self.poses.append(pose)
             frame = {
                 "file_path": self.color_paths[i],
+                "depth_path": self.depth_paths[i],
+                "transform_matrix": pose.tolist(),
+            }
+
+            frames.append(frame)
+        self.frames = frames
+
+
+class ReplicaSemanticParser:
+    def __init__(self, input_folder):
+        self.input_folder = input_folder
+        self.color_paths = sorted(glob.glob(f"{self.input_folder}/results/frame*.jpg"))
+        self.depth_paths = sorted(glob.glob(f"{self.input_folder}/results/depth*.png"))
+        self.segmentation_map_paths = sorted(
+            glob.glob(
+                f"{self.input_folder}/results_segmentation_maps/Annotations/*.png"
+            )
+        )
+        self.segmentation_label_paths = sorted(
+            glob.glob(f"{self.input_folder}/results_segmentation_labels/*.pt")
+        )
+        self.n_img = len(self.color_paths)
+        self.load_poses(f"{self.input_folder}/traj.txt")
+
+    def load_poses(self, path):
+        self.poses = []
+        with open(path, "r") as f:
+            lines = f.readlines()
+
+        frames = []
+        for i in range(self.n_img):
+            line = lines[i]
+            pose = np.array(list(map(float, line.split()))).reshape(4, 4)
+            pose = np.linalg.inv(pose)
+            self.poses.append(pose)
+            frame = {
+                "file_path": self.color_paths[i],
+                "segmentation_map_path": self.segmentation_map_paths[i],
+                "segmentation_label_path": self.segmentation_label_paths[i],
                 "depth_path": self.depth_paths[i],
                 "transform_matrix": pose.tolist(),
             }
@@ -126,7 +166,7 @@ class TUMSemanticParser:
     def __init__(self, input_folder):
         self.input_folder = input_folder
         # TODO
-        self.num = float('inf')
+        self.num = float("inf")
         self.load_poses(self.input_folder, num=self.num, frame_rate=32)
 
     def parse_list(self, filepath, skiprows=0):
@@ -613,6 +653,19 @@ class ReplicaDataset(MonocularDataset):
         self.poses = parser.poses
 
 
+class ReplicaSemanticDataset(MonocularSemanticDataset):
+    def __init__(self, args, path, config):
+        super().__init__(args, path, config)
+        dataset_path = config["Dataset"]["dataset_path"]
+        parser = ReplicaSemanticParser(dataset_path)
+        self.num_imgs = parser.n_img
+        self.color_paths = parser.color_paths
+        self.depth_paths = parser.depth_paths
+        self.segmentation_map_paths = parser.segmentation_map_paths
+        self.segmentation_label_paths = parser.segmentation_label_paths
+        self.poses = parser.poses
+
+
 class EurocDataset(StereoDataset):
     def __init__(self, args, path, config):
         super().__init__(args, path, config)
@@ -693,8 +746,11 @@ def load_dataset(args, path, config):
             return TUMSemanticDataset(args, path, config)
         else:
             return TUMDataset(args, path, config)
-    elif config["Dataset"]["type"] == "replica":
-        return ReplicaDataset(args, path, config)
+    elif config["Dataset"]["type"] == "replica_semantic":
+        if config["Dataset"]["semantic"]:
+            return ReplicaSemanticDataset(args, path, config)
+        else:
+            return ReplicaDataset(args, path, config)
     elif config["Dataset"]["type"] == "euroc":
         return EurocDataset(args, path, config)
     elif config["Dataset"]["type"] == "realsense":

@@ -26,7 +26,11 @@ from gui.gui_utils import (
     get_latest_queue,
 )
 from utils.camera_utils import Camera
-from utils.semantic_decoder import SemanticDecoder, generate_segmentation_map
+from utils.semantic_decoder import (
+    SemanticDecoder,
+    generate_segmentation_map,
+    generate_confidence_map,
+)
 from utils.logging_utils import Log
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
@@ -37,6 +41,7 @@ class SLAM_GUI:
         self.step = 0
         self.process_finished = False
         self.device = "cuda"
+        self.o3d_device = o3d.core.Device("cuda:5")
 
         self.frustum_dict = {}
         self.model_dict = {}
@@ -96,6 +101,7 @@ class SLAM_GUI:
             rendering.ColorGrading.Quality.ULTRA,
             rendering.ColorGrading.ToneMapping.LINEAR,
         )
+
         self.widget3d.scene.view.set_color_grading(cg_settings)
 
         self.window.add_child(self.widget3d)
@@ -137,7 +143,7 @@ class SLAM_GUI:
         chbox_tile.add_child(self.followcam_chbox)
 
         self.staybehind_chbox = gui.Checkbox("From Behind")
-        self.staybehind_chbox.checked = True
+        self.staybehind_chbox.checked = False
         chbox_tile.add_child(self.staybehind_chbox)
         vp_subtile1.add_child(chbox_tile)
 
@@ -168,7 +174,7 @@ class SLAM_GUI:
         self.panel.add_child(chbox_tile_3dobj)
 
         self.axis_chbox = gui.Checkbox("Axis")
-        self.axis_chbox.checked = False
+        self.axis_chbox.checked = True
         self.axis_chbox.set_on_checked(self._on_axis_chbox)
         chbox_tile_3dobj.add_child(self.axis_chbox)
 
@@ -203,6 +209,10 @@ class SLAM_GUI:
         self.segmentation_map_chbox = gui.Checkbox("Segmentation Map")
         self.segmentation_map_chbox.checked = True
         chbox_tile_semantic_geometry.add_child(self.segmentation_map_chbox)
+
+        self.semantic_confidence_map_chbox = gui.Checkbox("Confidence Map")
+        self.semantic_confidence_map_chbox.checked = False
+        chbox_tile_semantic_geometry.add_child(self.semantic_confidence_map_chbox)
 
         self.elipsoid_segmentation_chbox = gui.Checkbox("Semantic Elipsoid Shader")
         self.elipsoid_segmentation_chbox.checked = False
@@ -675,22 +685,30 @@ class SLAM_GUI:
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
         elif self.semantic_feature_chbox.checked and self.is_semantic:
-            semantic_feature = (
-                (
-                    torch.clamp(
-                        results["render_semantics"],
-                        min=0,
-                        max=1.0,
+            if self.semantic_decoder.semantic_embedding_dim == 3:
+                semantic_feature = (
+                    (
+                        torch.clamp(
+                            results["render_semantics"],
+                            min=0,
+                            max=1.0,
+                        )
+                        * 255
                     )
-                    * 255
+                    .byte()
+                    .permute(1, 2, 0)
+                    .contiguous()
+                    .cpu()
+                    .numpy()
                 )
-                .byte()
-                .permute(1, 2, 0)
-                .contiguous()
-                .cpu()
-                .numpy()
-            )
-            render_img = o3d.geometry.Image(semantic_feature)
+                render_img = o3d.geometry.Image(semantic_feature)
+            else:
+                Log(
+                    f"Only semantic embedding with dimension=3 can be displayed, current {self.semantic_decoder.semantic_embedding_dim}.",
+                    tag="Error",
+                )
+                self.semantic_feature_chbox.checked = False
+                render_img = None
         elif self.segmentation_map_chbox.checked and self.is_semantic:
             _, h, w = results["render"].shape
             segmentation_map = generate_segmentation_map(
@@ -700,6 +718,15 @@ class SLAM_GUI:
                 w,
             )
             render_img = o3d.geometry.Image(segmentation_map)
+        elif self.semantic_confidence_map_chbox.checked and self.is_semantic:
+            _, h, w = results["render"].shape
+            confidence_map = generate_confidence_map(
+                results["render_softmax_decoded_semantics"],
+                self.semantic_decoder.heat_map,
+                h,
+                w,
+            )
+            render_img = o3d.geometry.Image(confidence_map)
         elif self.elipsoid_segmentation_chbox.checked and self.is_semantic:
             if self.gaussian_cur is None:
                 return
@@ -744,6 +771,17 @@ class SLAM_GUI:
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
         else:
+            rgb = (
+                (torch.clamp(results["render"], min=0, max=1.0) * 255)
+                .byte()
+                .permute(1, 2, 0)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
+            render_img = o3d.geometry.Image(rgb)
+
+        if render_img is None:
             rgb = (
                 (torch.clamp(results["render"], min=0, max=1.0) * 255)
                 .byte()

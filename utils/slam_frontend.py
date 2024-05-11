@@ -18,7 +18,6 @@ from utils.slam_utils import get_loss_tracking, get_median_depth
 class FrontEnd(mp.Process):
     def __init__(self, config):
         super().__init__()
-        print(f"frontend_process.name, {self.name}")
         self.config = config
         self.background = None
         self.pipeline_params = None

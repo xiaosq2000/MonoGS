@@ -4,7 +4,6 @@ import colorsys
 import matplotlib.pyplot as plt
 import numpy as np
 from torch import nn
-import os
 
 
 def generate_label_colors(num_labels):
@@ -45,7 +44,7 @@ def generate_label_colors(num_labels):
 
 def generate_segmentation_map(decoded_semantics, color_palette, h, w):
     # Get the class indices with highest scores for each pixel
-    class_indices = torch.argmax(decoded_semantics, dim=1).cpu().numpy()
+    class_indices = torch.argmax(decoded_semantics.detach(), dim=1).cpu().numpy()
 
     # Create an array of colors corresponding to class indices
     colors = np.array(
@@ -62,22 +61,56 @@ def generate_segmentation_map(decoded_semantics, color_palette, h, w):
     return segmentation_map
 
 
+def generate_confidence_map(softmax_decoded_semantics: torch.Tensor, color_map, h, w):
+    try:
+        generate_confidence_map.idx += 1
+    except AttributeError:
+        generate_confidence_map.idx = 0
+
+    # Get the maximum softmax probability for each pixel
+    max_probs = np.max(softmax_decoded_semantics.detach().cpu().numpy(), axis=1)
+
+    max_probs_map = max_probs.reshape(h, w)
+
+    # Generate confidence map without alpha channel
+    confidence_map_rgba = color_map(max_probs_map)
+    confidence_map_rgb = confidence_map_rgba[:, :, :3]  # Remove alpha channel
+    confidence_map = (confidence_map_rgb * 255).astype(np.uint8)
+
+    # print(generate_confidence_map.idx)
+    # if generate_confidence_map.idx == 20:
+    #     np.save("/tmp/max_probs_map.pt", max_probs_map)
+    #     print("Save to /tmp/max_probs_map.pt")
+
+    return confidence_map
+
+
 class SemanticDecoder(nn.Module):
-    def __init__(self, semantic_embedding_dim=16, num_classes=200):
+    def __init__(
+        self,
+        semantic_embedding_dim,
+        num_classes,
+        color_palette_path=None,
+        color_palette=None,
+    ):
         super(SemanticDecoder, self).__init__()
         self.num_classes = num_classes
         self.semantic_embedding_dim = semantic_embedding_dim
 
         self.fc1 = nn.Linear(self.semantic_embedding_dim, self.num_classes, bias=False)
 
-        # TODO: implement in `dataset.py'
-        with open(
-            "/mnt/dev-ssd-8T/shuqixiao/data/tum_semantic/rgbd_dataset_freiburg3_long_office_household/color_palette.pkl",
-            "rb",
-        ) as f:
-            self.color_palette = pickle.load(f)
-            # self.color_palette = generate_label_colors(self.num_classes)
-        self.idx = 0
+        if color_palette_path is not None:
+            with open(
+                color_palette_path,
+                "rb",
+            ) as f:
+                self.color_palette = pickle.load(f)
+        if color_palette is not None:
+            self.color_palette = color_palette
+        if color_palette is None and color_palette_path is None:
+            self.color_palette = generate_label_colors(num_labels=self.num_classes)
+
+        self.heat_map = plt.cm.get_cmap("hot")
 
     def forward(self, x: torch.Tensor):
         # From (c, h, w) to (1, h, w, c)
@@ -85,30 +118,23 @@ class SemanticDecoder(nn.Module):
         x = x.view(-1, self.semantic_embedding_dim)
         x = self.fc1(x)
         x = x.unsqueeze(dim=0).permute(0, 2, 1)
-        # self.idx = self.idx + 1
-        # if self.idx % 10 == 0:
-        #     print(self.fc1.weight)
         return x
 
 
 if __name__ == "__main__":
-    target = os.path.normpath(
-        "/mnt/dev-ssd-8T/shuqixiao/data/tum_semantic/rgbd_dataset_freiburg3_long_office_household/segmentation_label/1341847980.722988.pt"
-    )
-    if not os.path.exists(target):
-        raise ValueError(f"Error: {target} does not exist.")
-
     semantic_embedding_dim = 16
     num_classes = 5
+    h = 960
+    w = 1080
     input = torch.randn(
-        (semantic_embedding_dim, 960, 1080), dtype=torch.float32, device="cuda"
+        (semantic_embedding_dim, h, w), dtype=torch.float32, device="cuda"
     )
     semantic_decoder = SemanticDecoder(
         semantic_embedding_dim=semantic_embedding_dim, num_classes=num_classes
     ).to("cuda")
     output = semantic_decoder(input)
     segmentation_map = generate_segmentation_map(
-        output, semantic_decoder.color_palette, 960, 1080
+        output, semantic_decoder.color_palette, h, w
     )
     # Display the segmentation map using Matplotlib
     plt.imshow(segmentation_map)
