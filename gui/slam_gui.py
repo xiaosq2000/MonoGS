@@ -1,3 +1,4 @@
+from pynvml import *
 import pathlib
 import threading
 import time
@@ -30,6 +31,8 @@ from utils.semantic_decoder import (
     SemanticDecoder,
     generate_segmentation_map,
     generate_confidence_map,
+    generate_semantic_mask,
+    # test_generate_random_mask,
 )
 from utils.logging_utils import Log
 
@@ -164,7 +167,7 @@ class SLAM_GUI:
         self.panel.add_child(gui.Label("3D Objects"))
         chbox_tile_3dobj = gui.Horiz(0.5 * em, gui.Margins(margin))
         self.cameras_chbox = gui.Checkbox("Cameras")
-        self.cameras_chbox.checked = True
+        self.cameras_chbox.checked = False
         self.cameras_chbox.set_on_checked(self._on_cameras_chbox)
         chbox_tile_3dobj.add_child(self.cameras_chbox)
 
@@ -174,7 +177,7 @@ class SLAM_GUI:
         self.panel.add_child(chbox_tile_3dobj)
 
         self.axis_chbox = gui.Checkbox("Axis")
-        self.axis_chbox.checked = True
+        self.axis_chbox.checked = False
         self.axis_chbox.set_on_checked(self._on_axis_chbox)
         chbox_tile_3dobj.add_child(self.axis_chbox)
 
@@ -203,11 +206,11 @@ class SLAM_GUI:
         chbox_tile_semantic_geometry = gui.Horiz(0.5 * em, gui.Margins(margin))
 
         self.semantic_feature_chbox = gui.Checkbox("Semantic Feature")
-        self.semantic_feature_chbox.checked = False
+        self.semantic_feature_chbox.checked = True
         chbox_tile_semantic_geometry.add_child(self.semantic_feature_chbox)
 
         self.segmentation_map_chbox = gui.Checkbox("Segmentation Map")
-        self.segmentation_map_chbox.checked = True
+        self.segmentation_map_chbox.checked = False
         chbox_tile_semantic_geometry.add_child(self.segmentation_map_chbox)
 
         self.semantic_confidence_map_chbox = gui.Checkbox("Confidence Map")
@@ -219,14 +222,27 @@ class SLAM_GUI:
         chbox_tile_semantic_geometry.add_child(self.elipsoid_segmentation_chbox)
         self.panel.add_child(chbox_tile_semantic_geometry)
 
-        slider_tile = gui.Horiz(0.5 * em, gui.Margins(margin))
-        slider_label = gui.Label("Gaussian Scale (0-1)")
-        self.scaling_slider = gui.Slider(gui.Slider.DOUBLE)
-        self.scaling_slider.set_limits(0.001, 1.0)
-        self.scaling_slider.double_value = 1.0
-        slider_tile.add_child(slider_label)
-        slider_tile.add_child(self.scaling_slider)
-        self.panel.add_child(slider_tile)
+        gaussian_scale_slider_tile = gui.Horiz(0.5 * em, gui.Margins(margin))
+        gaussian_scale_slider_label = gui.Label("Gaussian Scale (0-1)")
+        self.gaussian_scale_slider = gui.Slider(gui.Slider.DOUBLE)
+        self.gaussian_scale_slider.set_limits(0.001, 1.0)
+        self.gaussian_scale_slider.double_value = 1.0
+        gaussian_scale_slider_tile.add_child(gaussian_scale_slider_label)
+        gaussian_scale_slider_tile.add_child(self.gaussian_scale_slider)
+        self.panel.add_child(gaussian_scale_slider_tile)
+
+        segmentation_threshold_slider_tile = gui.Horiz(0.5 * em, gui.Margins(margin))
+        segmentation_threshold_slider_label = gui.Label(
+            "Segmentation Confidence Threshold (0-1)"
+        )
+        self.segmentation_threshold_slider = gui.Slider(gui.Slider.DOUBLE)
+        self.segmentation_threshold_slider.set_limits(0.0, 1.0)
+        self.segmentation_threshold_slider.double_value = 0.0
+        segmentation_threshold_slider_tile.add_child(
+            segmentation_threshold_slider_label
+        )
+        segmentation_threshold_slider_tile.add_child(self.segmentation_threshold_slider)
+        self.panel.add_child(segmentation_threshold_slider_tile)
 
         # screenshot buttom
         self.screenshot_btn = gui.Button("Screenshot")
@@ -276,7 +292,7 @@ class SLAM_GUI:
     def update_activated_renderer_state(self, gaus):
         self.g_renderer.update_gaussian_data(gaus)
         self.g_renderer.sort_and_update(self.g_camera)
-        self.g_renderer.set_scale_modifier(self.scaling_slider.double_value)
+        self.g_renderer.set_scale_modifier(self.gaussian_scale_slider.double_value)
         self.g_renderer.set_render_mod(-4)
         self.g_renderer.update_camera_pose(self.g_camera)
         self.g_renderer.update_camera_intrin(self.g_camera)
@@ -604,7 +620,7 @@ class SLAM_GUI:
                 self.pipe,
                 self.background,
                 self.background_semantics,
-                self.scaling_slider.double_value,
+                self.gaussian_scale_slider.double_value,
             )
             self.gaussian_cur.get_features = features
         else:
@@ -614,7 +630,7 @@ class SLAM_GUI:
                 self.pipe,
                 self.background,
                 self.background_semantics,
-                self.scaling_slider.double_value,
+                self.gaussian_scale_slider.double_value,
             )
         return rendering_data
 
@@ -689,7 +705,7 @@ class SLAM_GUI:
                 semantic_feature = (
                     (
                         torch.clamp(
-                            results["render_semantics"],
+                            results["semantics"],
                             min=0,
                             max=1.0,
                         )
@@ -710,21 +726,21 @@ class SLAM_GUI:
                 self.semantic_feature_chbox.checked = False
                 render_img = None
         elif self.segmentation_map_chbox.checked and self.is_semantic:
-            _, h, w = results["render"].shape
+            mask = generate_semantic_mask(
+                results["segmentation_masks_probabilities"],
+                threshold=self.segmentation_threshold_slider.double_value,
+                debug=False,
+            )
             segmentation_map = generate_segmentation_map(
-                results["render_decoded_semantics"],
-                self.semantic_decoder.color_palette,
-                h,
-                w,
+                segmentation_masks_labels=results["segmentation_masks_labels"],
+                color_palette=self.semantic_decoder.color_palette,
+                mask=mask,
+                debug=False,
             )
             render_img = o3d.geometry.Image(segmentation_map)
         elif self.semantic_confidence_map_chbox.checked and self.is_semantic:
-            _, h, w = results["render"].shape
             confidence_map = generate_confidence_map(
-                results["render_softmax_decoded_semantics"],
-                self.semantic_decoder.heat_map,
-                h,
-                w,
+                results["segmentation_masks_probabilities"],
             )
             render_img = o3d.geometry.Image(confidence_map)
         elif self.elipsoid_segmentation_chbox.checked and self.is_semantic:
@@ -793,13 +809,27 @@ class SLAM_GUI:
             render_img = o3d.geometry.Image(rgb)
         return render_img
 
-    def render_gui(self):
+    def render_gui(self, log=True):
         if not self.init:
             return
         current_cam = self.get_current_cam()
         results = self.rasterise(current_cam)
         if results is None:
             return
+
+        if log:
+            try:
+                self.frame_counter += 1
+                self.previous_frame_timestamp = self.current_frame_timestamp
+                self.current_frame_timestamp = time.time()
+                Log(
+                    f"Rasterising {self.frame_counter} frame, {1/(self.current_frame_timestamp - self.previous_frame_timestamp)} fps."
+                )
+            except AttributeError:
+                self.frame_counter = 0
+                self.previous_frame_timestamp = time.time()
+                self.current_frame_timestamp = self.previous_frame_timestamp
+
         self.render_img = self.render_o3d_image(results, current_cam)
         self.widget3d.scene.set_background([0, 0, 0, 1], self.render_img)
 
@@ -809,7 +839,7 @@ class SLAM_GUI:
 
     def _update_thread(self):
         while True:
-            time.sleep(0.01)
+            time.sleep(0.02)
             self.step += 1
             if self.process_finished:
                 o3d.visualization.gui.Application.instance.quit()

@@ -1,4 +1,5 @@
 import torch
+from utils.logging_utils import Log
 from torch.nn import functional as F
 
 
@@ -82,10 +83,10 @@ def get_loss_tracking_rgb(config, image, depth, opacity, viewpoint):
     return l1.mean()
 
 
-def get_loss_tracking_semantics(config, decoded_semantics, depth, opacity, viewpoint):
+def get_loss_tracking_semantics(config, segmentation_logits, depth, opacity, viewpoint):
     segmentation_label = viewpoint.segmentation_label.cuda().view(1, -1)
     loss_segmentation_label = F.cross_entropy(
-        decoded_semantics,
+        segmentation_logits,
         segmentation_label,
     )
     return loss_segmentation_label
@@ -113,7 +114,7 @@ def get_loss_tracking_rgbd(
 
 
 def get_loss_tracking_semantic_rgbd(
-    config, image, decoded_semantics, depth, opacity, viewpoint, initialization=False
+    config, image, segmentation_logits, depth, opacity, viewpoint, initialization=False
 ):
     alpha = (
         config["Training"]["tracking_alpha"]
@@ -135,7 +136,7 @@ def get_loss_tracking_semantic_rgbd(
     l1_rgb = get_loss_tracking_rgb(config, image, depth, opacity, viewpoint)
     loss_semantics = get_loss_tracking_semantics(
         config=config,
-        decoded_semantics=decoded_semantics,
+        segmentation_logits=segmentation_logits,
         depth=depth,
         opacity=opacity,
         viewpoint=viewpoint,
@@ -150,7 +151,7 @@ def get_loss_mapping(
     config,
     image,
     semantics,
-    decoded_semantics,
+    segmentation_logits,
     depth,
     viewpoint,
     opacity,
@@ -165,20 +166,16 @@ def get_loss_mapping(
     if config["Training"]["monocular"]:
         loss = get_loss_mapping_rgb(config, image_ab, depth, viewpoint)
     else:
-        if config["Training"]["semantic"]:
-            # TODO
-            if initialization:
-                semantics_ab = semantics
-                decoded_semantics_ab = decoded_semantics
-            else:
-                semantics_ab = semantics
-                decoded_semantics_ab = decoded_semantics
-
+        if (
+            config["Training"].get("semantic")
+            and config["Training"]["semantic"] is True
+        ):
+            # TODO: Does exposure affect segmentation?
             loss = get_loss_mapping_semantic_rgbd(
                 config=config,
                 image=image_ab,
-                semantics=semantics_ab,
-                decoded_semantics=decoded_semantics_ab,
+                semantics=semantics,
+                segmentation_logits=segmentation_logits,
                 depth=depth,
                 viewpoint=viewpoint,
             )
@@ -228,7 +225,9 @@ def get_loss_mapping_semantic_rgbd(
     depth,
     viewpoint,
     semantics,
-    decoded_semantics,
+    segmentation_logits,
+    segmentation_uncertainty_mask=None,
+    debug=False,
 ):
     alpha = (
         config["Training"]["mapping_alpha"]
@@ -249,13 +248,23 @@ def get_loss_mapping_semantic_rgbd(
         dtype=torch.float32, device=image.device
     )[None]
     rgb_pixel_mask = (gt_image.sum(dim=0) > rgb_boundary_threshold).view(*depth.shape)
-    # TODO: semantic_pixel_mask
+    # TODO: semantic_uncertainty_mask
     depth_pixel_mask = (gt_depth > 0.01).view(*depth.shape)
     l1_rgb = torch.abs(image * rgb_pixel_mask - gt_image * rgb_pixel_mask)
     l1_depth = torch.abs(depth * depth_pixel_mask - gt_depth * depth_pixel_mask)
+
+    if debug:
+        try:
+            get_loss_mapping_semantic_rgbd.idx += 1
+            if get_loss_mapping_semantic_rgbd.idx == 10:
+                print(segmentation_logits.shape)
+                print(gt_segmentation_label.view(1, -1).shape)
+        except AttributeError:
+            get_loss_mapping_semantic_rgbd.idx = 0
+
     # loss_semantics = torch.abs(semantics - gt_segmentation_map)
     loss_segmentation_label = F.cross_entropy(
-        decoded_semantics,
+        segmentation_logits,
         gt_segmentation_label.view(1, -1),
     )
 

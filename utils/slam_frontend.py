@@ -171,7 +171,7 @@ class FrontEnd(mp.Process):
                 render_pkg["opacity"],
             )
             if self.gaussians.is_semantic:
-                decoded_semantics = render_pkg["render_decoded_semantics"]
+                decoded_semantics = render_pkg["segmentation_logits"]
             else:
                 decoded_semantics = None
 

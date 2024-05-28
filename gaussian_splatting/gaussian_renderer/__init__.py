@@ -261,8 +261,10 @@ def _semantic_render(
         (
             rendered_image,
             semantics,
-            decoded_semantics,
-            softmax_decoded_semantics,
+            segmentation_logits,
+            segmentation_probabilities,
+            segmentation_masks_probabilities,
+            segmentation_masks_labels,
             radii,
             depth,
             opacity,
@@ -286,8 +288,10 @@ def _semantic_render(
         (
             rendered_image,
             semantics,
-            decoded_semantics,
-            softmax_decoded_semantics,
+            segmentation_logits,
+            segmentation_probabilities,
+            segmentation_masks_probabilities,
+            segmentation_masks_labels,
             radii,
             depth,
             opacity,
@@ -310,9 +314,11 @@ def _semantic_render(
     # They will be excluded from value updates used in the splitting criteria.
     return {
         "render": rendered_image,
-        "render_semantics": semantics,
-        "render_decoded_semantics": decoded_semantics,
-        "render_softmax_decoded_semantics": softmax_decoded_semantics,
+        "semantics": semantics,
+        "segmentation_logits": segmentation_logits,
+        "segmentation_probabilities": segmentation_probabilities,
+        "segmentation_masks_probabilities": segmentation_masks_probabilities,
+        "segmentation_masks_labels": segmentation_masks_labels,
         "viewspace_points": screenspace_points,
         "visibility_filter": radii > 0,
         "radii": radii,
@@ -345,5 +351,11 @@ def render(
         )
     else:
         return _render(
-            viewpoint_camera, pc, pipe, bg_color, scaling_modifier, override_color, mask
+            viewpoint_camera=viewpoint_camera,
+            pc=pc,
+            pipe=pipe,
+            bg_color=bg_color,
+            scaling_modifier=scaling_modifier,
+            override_color=override_color,
+            mask=mask,
         )

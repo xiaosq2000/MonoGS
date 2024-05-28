@@ -81,7 +81,7 @@ if __name__ == "__main__":
         os.path.join(dst_dir, os.path.splitext(file)[0] + ".pt") for file in filenames
     ]
 
-    num_classes = 200
+    num_classes = 100
     color_to_index = {}
 
     for i, file in tqdm(enumerate(file_paths)):

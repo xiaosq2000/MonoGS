@@ -90,7 +90,14 @@ class BackEnd(mp.Process):
         for mapping_iteration in range(self.init_itr_num):
             self.iteration_count += 1
             render_pkg = render(
-                viewpoint, self.gaussians, self.pipeline_params, self.background, self.background_semantics
+                viewpoint_camera=viewpoint,
+                pc=self.gaussians,
+                pipe=self.pipeline_params,
+                bg_color=self.background,
+                bg_semantics=self.background_semantics,
+                scaling_modifier=1.0,
+                override_color=None,
+                mask=None,
             )
             (
                 image,
@@ -111,11 +118,11 @@ class BackEnd(mp.Process):
             )
 
             if self.gaussians.is_semantic:
-                semantics = render_pkg["render_semantics"]
-                decoded_semantics = render_pkg["render_decoded_semantics"]
+                semantics = render_pkg["semantics"]
+                segmentation_logits = render_pkg["segmentation_logits"]
             else:
                 semantics = None
-                decoded_semantics = None
+                segmentation_logits = None
 
             loss_init = get_loss_mapping(
                 config=self.config,
@@ -125,8 +132,9 @@ class BackEnd(mp.Process):
                 opacity=opacity,
                 initialization=True,
                 semantics=semantics,
-                decoded_semantics=decoded_semantics,
+                segmentation_logits=segmentation_logits,
             )
+
             loss_init.backward()
 
             with torch.no_grad():
@@ -187,7 +195,11 @@ class BackEnd(mp.Process):
                 viewpoint = viewpoint_stack[cam_idx]
                 keyframes_opt.append(viewpoint)
                 render_pkg = render(
-                    viewpoint, self.gaussians, self.pipeline_params, self.background, self.background_semantics
+                    viewpoint,
+                    self.gaussians,
+                    self.pipeline_params,
+                    self.background,
+                    self.background_semantics,
                 )
                 (
                     image,
@@ -207,8 +219,8 @@ class BackEnd(mp.Process):
                     render_pkg["n_touched"],
                 )
                 if self.gaussians.is_semantic:
-                    semantics = render_pkg["render_semantics"]
-                    decoded_semantics = render_pkg["render_decoded_semantics"]
+                    semantics = render_pkg["semantics"]
+                    decoded_semantics = render_pkg["segmentation_logits"]
                 else:
                     semantics = None
                     decoded_semantics = None
@@ -217,7 +229,7 @@ class BackEnd(mp.Process):
                     config=self.config,
                     image=image,
                     semantics=semantics,
-                    decoded_semantics=decoded_semantics,
+                    segmentation_logits=decoded_semantics,
                     depth=depth,
                     viewpoint=viewpoint,
                     opacity=opacity,
@@ -231,7 +243,11 @@ class BackEnd(mp.Process):
             for cam_idx in torch.randperm(len(random_viewpoint_stack))[:2]:
                 viewpoint = random_viewpoint_stack[cam_idx]
                 render_pkg = render(
-                    viewpoint, self.gaussians, self.pipeline_params, self.background, self.background_semantics
+                    viewpoint,
+                    self.gaussians,
+                    self.pipeline_params,
+                    self.background,
+                    self.background_semantics,
                 )
                 (
                     image,
@@ -251,8 +267,8 @@ class BackEnd(mp.Process):
                     render_pkg["n_touched"],
                 )
                 if self.gaussians.is_semantic:
-                    semantics = render_pkg["render_semantics"]
-                    decoded_semantics = render_pkg["render_decoded_semantics"]
+                    semantics = render_pkg["semantics"]
+                    decoded_semantics = render_pkg["segmentation_logits"]
                 else:
                     semantics = None
                     decoded_semantics = None
@@ -261,7 +277,7 @@ class BackEnd(mp.Process):
                     config=self.config,
                     image=image,
                     semantics=semantics,
-                    decoded_semantics=decoded_semantics,
+                    segmentation_logits=decoded_semantics,
                     depth=depth,
                     viewpoint=viewpoint,
                     opacity=opacity,
@@ -373,7 +389,11 @@ class BackEnd(mp.Process):
             )
             viewpoint_cam = self.viewpoints[viewpoint_cam_idx]
             render_pkg = render(
-                viewpoint_cam, self.gaussians, self.pipeline_params, self.background, self.background_semantics
+                viewpoint_cam,
+                self.gaussians,
+                self.pipeline_params,
+                self.background,
+                self.background_semantics,
             )
             image, visibility_filter, radii = (
                 render_pkg["render"],

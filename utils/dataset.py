@@ -2,6 +2,7 @@ import sys
 import csv
 import glob
 import os
+from utils.logging_utils import Log
 
 import cv2
 import numpy as np
@@ -746,6 +747,8 @@ def load_dataset(args, path, config):
             return TUMSemanticDataset(args, path, config)
         else:
             return TUMDataset(args, path, config)
+    elif config["Dataset"]["type"] == "replica":
+        return ReplicaDataset(args, path, config)
     elif config["Dataset"]["type"] == "replica_semantic":
         if config["Dataset"]["semantic"]:
             return ReplicaSemanticDataset(args, path, config)
@@ -756,4 +759,6 @@ def load_dataset(args, path, config):
     elif config["Dataset"]["type"] == "realsense":
         return RealsenseDataset(args, path, config)
     else:
+        str = config["Dataset"]["type"]
+        Log(f"Dataset Type: {str}", tag="Error")
         raise ValueError("Unknown dataset type")

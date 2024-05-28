@@ -64,7 +64,10 @@ class GaussianModel:
         self.rotation_activation = torch.nn.functional.normalize
 
         self.config = config
-        self.is_semantic = self.config["Dataset"]["semantic"]
+        self.is_semantic = self.config["Dataset"].get("semantic")
+        if self.is_semantic is None:
+            self.is_semantic = False
+
         if self.is_semantic:
             self.semantic_embedding_dim = self.config["Training"][
                 "semantic_embedding_dim"
@@ -77,6 +80,10 @@ class GaussianModel:
                     "segmentation_color_palatte_path"
                 ],
             ).to("cuda")
+        else:
+            self.semantic_embedding_dim = None
+            self.num_classes = None
+            self.semantic_decoder = None
 
         self.ply_input = None
 
@@ -455,7 +462,7 @@ class GaussianModel:
             )
             l.append(
                 {
-                    "params": self.semantic_decoder.fc1.parameters(),
+                    "params": self.semantic_decoder.linear_layer.parameters(),
                     "lr": training_args.semantic_decoder_lr,
                     "name": "semantic_decoder",
                 }

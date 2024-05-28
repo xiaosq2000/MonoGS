@@ -101,6 +101,7 @@ class Camera(nn.Module):
                 gt_color,
                 gt_depth,
                 None,
+                None,
                 gt_pose,
                 projection_matrix,
                 dataset.fx,

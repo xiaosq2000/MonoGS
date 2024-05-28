@@ -3,20 +3,21 @@ Results:
   save_dir: "results"
   save_trj: True
   save_trj_kf_intv: 20
-  use_gui: True
+  use_gui: False
   eval_rendering: True
   use_wandb: False
 
 Dataset:
   # <<< semantic <<<
   type: 'replica_semantic'
-  semantic: True 
+  # type: 'replica_semantic'
+  semantic: True
   # >>> semantic >>>
   sensor_type: 'depth'
   pcd_downsample: 64
   pcd_downsample_init: 32
   adaptive_pointsize: True
-  point_size: 0.07
+  point_size: 0.05
   Calibration:
     fx: 600.0
     fy: 600.0
@@ -35,12 +36,12 @@ Dataset:
 
 Training:
   # <<< semantic <<<
-  semantic_embedding_dim: 6
-  num_classes: 200
-  tracking_alpha: 0.85
-  tracking_beta: 0.05
-  mapping_alpha: 0.85
-  mapping_beta: 0.05
+  semantic_embedding_dim: 4
+  num_classes: 100
+  tracking_alpha: 0.90
+  tracking_beta: 0
+  mapping_alpha: 0.88
+  mapping_beta: 0.02
   # >>> semantic >>>
   init_itr_num: 1050
   init_gaussian_update: 100

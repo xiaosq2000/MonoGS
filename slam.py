@@ -42,7 +42,13 @@ class SLAM:
 
         self.live_mode = self.config["Dataset"]["type"] == "realsense"
         self.monocular = self.config["Dataset"]["sensor_type"] == "monocular"
-        self.semantic = self.config["Dataset"]["semantic"]
+        self.semantic = self.config["Dataset"].get("semantic")
+        if self.semantic:
+            self.semantic_embedding_dim = (
+                self.config["Training"]["semantic_embedding_dim"],
+            )
+        if self.semantic is None:
+            self.semantic = False
         self.use_spherical_harmonics = self.config["Training"]["spherical_harmonics"]
         self.use_gui = self.config["Results"]["use_gui"]
         if self.live_mode:
@@ -60,11 +66,16 @@ class SLAM:
         self.gaussians.training_setup(opt_params)
         bg_color = [0, 0, 0]
         self.background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
-        self.background_semantics = torch.zeros(
-            self.config["Training"]["semantic_embedding_dim"],
-            dtype=torch.float32,
-            device="cuda",
-        )
+
+        if self.semantic:
+            self.background_semantics = torch.zeros(
+                self.semantic_embedding_dim,
+                dtype=torch.float32,
+                device="cuda",
+            )
+        else:
+            self.background_semantics = None
+
 
         frontend_queue = mp.Queue()
         backend_queue = mp.Queue()
@@ -81,7 +92,10 @@ class SLAM:
 
         self.frontend.dataset = self.dataset
         self.frontend.background = self.background
-        self.frontend.background_semantics = self.background_semantics
+        if self.semantic:
+            self.frontend.background_semantics = self.background_semantics
+        else:
+            self.frontend.background_semantics = None
         self.frontend.pipeline_params = self.pipeline_params
         self.frontend.frontend_queue = frontend_queue
         self.frontend.backend_queue = backend_queue
@@ -91,7 +105,10 @@ class SLAM:
 
         self.backend.gaussians = self.gaussians
         self.backend.background = self.background
-        self.backend.background_semantics = self.background_semantics
+        if self.semantic:
+            self.backend.background_semantics = self.background_semantics
+        else:
+            self.backend.background_semantics = None
         self.backend.cameras_extent = 6.0
         self.backend.pipeline_params = self.pipeline_params
         self.backend.opt_params = self.opt_params
@@ -109,7 +126,6 @@ class SLAM:
             q_main2vis=q_main2vis,
             q_vis2main=q_vis2main,
         )
-
         backend_process = mp.Process(target=self.backend.run)
         if self.use_gui:
             gui_process = mp.Process(
