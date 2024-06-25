@@ -1,4 +1,3 @@
-from pynvml import *
 import pathlib
 import threading
 import time
@@ -34,6 +33,7 @@ from utils.semantic_decoder import (
     generate_semantic_mask,
     # test_generate_random_mask,
 )
+from utils.semantic_feature_visualization import pca_visualization
 from utils.logging_utils import Log
 
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
@@ -90,7 +90,7 @@ class SLAM_GUI:
         threading.Thread(target=self._update_thread).start()
 
     def init_widget(self):
-        self.window_w, self.window_h = 1600, 900
+        self.window_w, self.window_h = 1200, 800
 
         self.window = gui.Application.instance.create_window(
             "Semantic 3DGS SLAM", self.window_w, self.window_h
@@ -177,7 +177,7 @@ class SLAM_GUI:
         self.panel.add_child(chbox_tile_3dobj)
 
         self.axis_chbox = gui.Checkbox("Axis")
-        self.axis_chbox.checked = False
+        self.axis_chbox.checked = True
         self.axis_chbox.set_on_checked(self._on_axis_chbox)
         chbox_tile_3dobj.add_child(self.axis_chbox)
 
@@ -206,11 +206,11 @@ class SLAM_GUI:
         chbox_tile_semantic_geometry = gui.Horiz(0.5 * em, gui.Margins(margin))
 
         self.semantic_feature_chbox = gui.Checkbox("Semantic Feature")
-        self.semantic_feature_chbox.checked = True
+        self.semantic_feature_chbox.checked = False
         chbox_tile_semantic_geometry.add_child(self.semantic_feature_chbox)
 
         self.segmentation_map_chbox = gui.Checkbox("Segmentation Map")
-        self.segmentation_map_chbox.checked = False
+        self.segmentation_map_chbox.checked = True
         chbox_tile_semantic_geometry.add_child(self.segmentation_map_chbox)
 
         self.semantic_confidence_map_chbox = gui.Checkbox("Confidence Map")
@@ -572,9 +572,12 @@ class SLAM_GUI:
     def get_current_cam(self):
         w2c = cv_gl @ self.widget3d.scene.camera.get_view_matrix()
 
-        image_gui = torch.zeros(
-            (1, int(self.window.size.height), int(self.widget3d_width))
-        )
+        # TODO:
+        image_gui = torch.zeros((1, 680, 1200))
+
+        # image_gui = torch.zeros(
+        #     (1, int(self.window.size.height), int(self.widget3d_width))
+        # )
         vfov_deg = self.widget3d.scene.camera.get_field_of_view()
         hfov_deg = self.vfov_to_hfov(vfov_deg, image_gui.shape[1], image_gui.shape[2])
         FoVx = np.deg2rad(hfov_deg)
@@ -634,7 +637,7 @@ class SLAM_GUI:
             )
         return rendering_data
 
-    def render_o3d_image(self, results, current_cam):
+    def render_o3d_image(self, results, current_cam, log=True):
         if self.depth_chbox.checked:
             depth = results["depth"]
             depth = depth[0, :, :].detach().cpu().numpy()
@@ -701,40 +704,46 @@ class SLAM_GUI:
             render_img = o3d.geometry.Image(img)
             glfw.swap_buffers(self.window_gl)
         elif self.semantic_feature_chbox.checked and self.is_semantic:
-            if self.semantic_decoder.semantic_embedding_dim == 3:
-                semantic_feature = (
-                    (
-                        torch.clamp(
-                            results["semantics"],
-                            min=0,
-                            max=1.0,
-                        )
-                        * 255
+            semantic_feature = (
+                (
+                    torch.clamp(
+                        results["semantics"],
+                        min=0,
+                        max=1.0,
                     )
-                    .byte()
-                    .permute(1, 2, 0)
-                    .contiguous()
-                    .cpu()
-                    .numpy()
+                    * 255
                 )
+                .byte()
+                .permute(1, 2, 0)
+                .contiguous()
+                .cpu()
+                .numpy()
+            )
+            if self.semantic_decoder.semantic_embedding_dim == 3:
                 render_img = o3d.geometry.Image(semantic_feature)
             else:
-                Log(
-                    f"Only semantic embedding with dimension=3 can be displayed, current {self.semantic_decoder.semantic_embedding_dim}.",
-                    tag="Error",
-                )
-                self.semantic_feature_chbox.checked = False
-                render_img = None
+                pca_semantic_feature = pca_visualization(semantic_feature)
+                if log:
+                    try:
+                        self.idx += 1
+                    except AttributeError:
+                        self.idx = 0
+                        Log(
+                            f"Using PCA for semantic feature visualization, current semantic embedding dimension is {self.semantic_decoder.semantic_embedding_dim}).",
+                            tag="GUI",
+                        )
+                render_img = o3d.geometry.Image(pca_semantic_feature)
         elif self.segmentation_map_chbox.checked and self.is_semantic:
-            mask = generate_semantic_mask(
-                results["segmentation_masks_probabilities"],
-                threshold=self.segmentation_threshold_slider.double_value,
-                debug=False,
-            )
+            # mask = generate_semantic_mask(
+            #     results["segmentation_masks_probabilities"],
+            #     threshold=self.segmentation_threshold_slider.double_value,
+            #     debug=False,
+            # )
+            # TODO: mask
             segmentation_map = generate_segmentation_map(
                 segmentation_masks_labels=results["segmentation_masks_labels"],
                 color_palette=self.semantic_decoder.color_palette,
-                mask=mask,
+                mask=None,
                 debug=False,
             )
             render_img = o3d.geometry.Image(segmentation_map)
@@ -823,7 +832,8 @@ class SLAM_GUI:
                 self.previous_frame_timestamp = self.current_frame_timestamp
                 self.current_frame_timestamp = time.time()
                 Log(
-                    f"Rasterising {self.frame_counter} frame, {1/(self.current_frame_timestamp - self.previous_frame_timestamp)} fps."
+                    f"Rasterising, { round(1 / (self.current_frame_timestamp - self.previous_frame_timestamp),3) } fps.",
+                    tag="GUI",
                 )
             except AttributeError:
                 self.frame_counter = 0
@@ -835,7 +845,7 @@ class SLAM_GUI:
 
     def scene_update(self):
         self.receive_data(self.q_main2vis)
-        self.render_gui()
+        self.render_gui(log=False)
 
     def _update_thread(self):
         while True:

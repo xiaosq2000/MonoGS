@@ -5,6 +5,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from torch import nn
 
+from utils.logging_utils import Log
+
 
 def generate_label_colors(num_labels):
     """
@@ -130,9 +132,17 @@ def generate_segmentation_map(
 
     # Apply colors to pixels based on class indices, respecting the mask
     if mask is None:
-        segmentation_map = colors[segmentation_masks_labels]
+        try:
+            segmentation_map = colors[segmentation_masks_labels]
+        except IndexError:
+            segmentation_map = colors[np.zeros_like(segmentation_masks_labels)]
     else:
-        segmentation_map[mask] = colors[segmentation_masks_labels[mask]]
+        try:
+            segmentation_map[mask] = colors[segmentation_masks_labels[mask]]
+        except IndexError:
+            segmentation_map[mask] = colors[
+                np.zeros_like(segmentation_masks_labels)[mask]
+            ]
 
     if debug:
         if generate_segmentation_map.idx == 0:
@@ -265,7 +275,7 @@ class SemanticDecoder(nn.Module):
         self.semantic_embedding_dim = semantic_embedding_dim
 
         self.linear_layer = nn.Linear(
-            self.semantic_embedding_dim, self.num_classes, bias=False
+            self.semantic_embedding_dim, self.num_classes, bias=True
         )
 
         if color_palette_path is not None:
@@ -297,8 +307,16 @@ class SemanticDecoder(nn.Module):
         # Add a batch dimension
         x = x.unsqueeze(dim=0)
 
-        # Reshape input tensor to (height * width, channels)
-        x = x.view(-1, self.semantic_embedding_dim)
+        try:
+            # Reshape input tensor to (height * width, channels)
+            x = x.view(-1, self.semantic_embedding_dim)
+        except RuntimeError:
+            Log(f"semantic_embedding_dim = {self.semantic_embedding_dim}", tag="Error")
+            Log(
+                "Check NUM_SEMANTIC_CHANNELS (C++ Macro) in 'submodules/diff-gaussian-rasterization/cuda_rasterizer/config.h'",
+                tag="Error",
+            )
+            raise
 
         # Pass through the linear layer to (height * width, num_classes)
         x = self.linear_layer(x)

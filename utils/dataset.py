@@ -50,8 +50,9 @@ class ReplicaParser:
 class ReplicaSemanticParser:
     def __init__(self, input_folder):
         self.input_folder = input_folder
-        self.color_paths = sorted(glob.glob(f"{self.input_folder}/results/frame*.jpg"))
-        self.depth_paths = sorted(glob.glob(f"{self.input_folder}/results/depth*.png"))
+        # TODO
+        self.color_paths = sorted(glob.glob(f"{self.input_folder}/results/frame*"))
+        self.depth_paths = sorted(glob.glob(f"{self.input_folder}/results/depth*"))
         self.segmentation_map_paths = sorted(
             glob.glob(
                 f"{self.input_folder}/results_segmentation_maps/Annotations/*.png"
@@ -82,7 +83,7 @@ class ReplicaSemanticParser:
                 "transform_matrix": pose.tolist(),
             }
 
-            frames.append(frame)
+        frames.append(frame)
         self.frames = frames
 
 

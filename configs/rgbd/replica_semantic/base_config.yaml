@@ -3,9 +3,9 @@ Results:
   save_dir: "results"
   save_trj: True
   save_trj_kf_intv: 20
-  use_gui: False
+  use_gui: True
   eval_rendering: True
-  use_wandb: False
+  use_wandb: True
 
 Dataset:
   # <<< semantic <<<
@@ -35,13 +35,16 @@ Dataset:
 
 
 Training:
+  live_mode: False
   # <<< semantic <<<
-  semantic_embedding_dim: 4
+  semantic_embedding_dim: 8
   num_classes: 100
   tracking_alpha: 0.90
-  tracking_beta: 0
+  tracking_beta: 0.10
+  tracking_gamma: 0
   mapping_alpha: 0.88
-  mapping_beta: 0.02
+  mapping_beta: 0.10
+  mapping_gamma: 0.02
   # >>> semantic >>>
   init_itr_num: 1050
   init_gaussian_update: 100
@@ -80,9 +83,9 @@ opt_params:
   position_lr_delay_mult: 0.01
   position_lr_max_steps: 30000
   feature_lr: 0.0025
-  # <<< semantic <<< 
+  # <<< semantic <<<
   semantic_feature_lr: 0.0025
-  semantic_decoder_lr: 0.02
+  semantic_decoder_lr: 0.0005
   # >>> semantic >>>
   opacity_lr: 0.05
   scaling_lr: 0.001

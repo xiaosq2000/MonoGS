@@ -63,6 +63,8 @@ class FrontEnd(mp.Process):
         valid_rgb = (gt_img.sum(dim=0) > rgb_boundary_threshold)[None]
         if self.monocular:
             if depth is None:
+                # At the start of the system, there are no 3D Gaussians.
+                # In other words, we cannot render a depth map for reference.
                 initial_depth = 2 * torch.ones(1, gt_img.shape[1], gt_img.shape[2])
                 initial_depth += torch.randn_like(initial_depth) * 0.3
             else:
@@ -126,7 +128,7 @@ class FrontEnd(mp.Process):
         self.request_init(cur_frame_idx, viewpoint, depth_map)
         self.reset = False
 
-    def tracking(self, cur_frame_idx, viewpoint):
+    def tracking(self, cur_frame_idx, viewpoint, log=False):
         prev = self.cameras[cur_frame_idx - self.use_every_n_frames]
         viewpoint.update_RT(prev.R, prev.T)
 
@@ -163,7 +165,11 @@ class FrontEnd(mp.Process):
         pose_optimizer = torch.optim.Adam(opt_params)
         for tracking_itr in range(self.tracking_itr_num):
             render_pkg = render(
-                viewpoint, self.gaussians, self.pipeline_params, self.background, self.background_semantics
+                viewpoint,
+                self.gaussians,
+                self.pipeline_params,
+                self.background,
+                self.background_semantics,
             )
             image, depth, opacity = (
                 render_pkg["render"],
@@ -213,10 +219,32 @@ class FrontEnd(mp.Process):
                             ),
                         )
                     )
-            if converged:
-                break
+            if log:
+                if converged:
+                    Log(f"converged after {tracking_itr} iterations.", tag="Track")
+                    break
+                if tracking_itr == (self.tracking_itr_num - 1):
+                    Log("tracking is not converged.", tag="Error")
+            else:
+                if converged:
+                    break
 
         self.median_depth = get_median_depth(depth, opacity)
+        if log:
+            try:
+                self.track_idx += 1
+                self.track_previous_timestamp = self.track_current_timestamp
+                self.track_current_timestamp = time.time()
+                fps = 1 / (self.track_current_timestamp - self.track_previous_timestamp)
+                Log(
+                    f"frame {self.track_idx}, fps {fps}",
+                    tag="Track",
+                )
+            except AttributeError:
+                self.track_idx = 0
+                self.track_previous_timestamp = self.track_current_timestamp = (
+                    time.time()
+                )
         return render_pkg
 
     def is_keyframe(
@@ -325,9 +353,8 @@ class FrontEnd(mp.Process):
 
     def sync_backend(self, data):
         self.gaussians = data[1]
-        occ_aware_visibility = data[2]
+        self.occ_aware_visibility = data[2]
         keyframes = data[3]
-        self.occ_aware_visibility = occ_aware_visibility
 
         for kf_id, kf_R, kf_T in keyframes:
             self.cameras[kf_id].update_RT(kf_R.clone(), kf_T.clone())
@@ -350,6 +377,7 @@ class FrontEnd(mp.Process):
             H=self.dataset.height,
         ).transpose(0, 1)
         projection_matrix = projection_matrix.to(device=self.device)
+        Log("Initialize camera parameters.", tag="Semantic-3DGS-SLAM")
         tic = torch.cuda.Event(enable_timing=True)
         toc = torch.cuda.Event(enable_timing=True)
 
@@ -367,6 +395,7 @@ class FrontEnd(mp.Process):
                     self.backend_queue.put(["unpause"])
 
             if self.frontend_queue.empty():
+                # no events
                 tic.record()
                 if cur_frame_idx >= len(self.dataset):
                     if self.save_results:
@@ -403,16 +432,20 @@ class FrontEnd(mp.Process):
                 self.cameras[cur_frame_idx] = viewpoint
 
                 if self.reset:
+                    # `requested_init' is set true and notify the backend process.
                     self.initialize(cur_frame_idx, viewpoint)
                     self.current_window.append(cur_frame_idx)
                     cur_frame_idx += 1
                     continue
 
+                # If depth avaiable, the system is always initialized.
                 self.initialized = self.initialized or (
                     len(self.current_window) == self.window_size
                 )
 
-                # Tracking
+                # Only when `requested_init' is set false by the backend, the tracking command can be executed.
+                # This is ensured by lots of 'continue's in the main loop.
+                # In other word, we have an initial Gaussian map now and we can track camera poses.
                 render_pkg = self.tracking(cur_frame_idx, viewpoint)
 
                 current_window_dict = {}
@@ -456,6 +489,7 @@ class FrontEnd(mp.Process):
                     )
                 if self.single_thread:
                     create_kf = check_time and create_kf
+
                 if create_kf:
                     self.current_window, removed = self.add_to_window(
                         cur_frame_idx,

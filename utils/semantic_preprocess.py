@@ -67,21 +67,29 @@ def count_and_label_classes(
 
 
 if __name__ == "__main__":
+    print("""
+          Generate one-hot encoding of colorful segmentation maps.
+
+          1. Map colors (RGB triples) to labels (integers).
+          2. Save the `label: color' correspondences as a dictionary.
+          """)
+
     src_dir = os.path.normpath(
-        "/mnt/dev-ssd-8T/shuqixiao/dev/projects/MonoGS/datasets/replica_semantic/room0/results_segmentation_maps/Annotations/"
+        "/mnt/dev-ssd-8T/shuqixiao/dev/projects/MonoGS/datasets/replica_semantic/room0_gt/results_segmentation_maps/"
     )
+    dst_dir = os.path.normpath(
+        "/mnt/dev-ssd-8T/shuqixiao/dev/projects/MonoGS/datasets/replica_semantic/room0_gt/results_segmentation_labels/"
+    )
+    max_num_classes = 100
+
     filenames = sorted(os.listdir(src_dir))
     file_paths = [os.path.join(src_dir, file) for file in filenames]
-    dst_dir = os.path.normpath(
-        "/mnt/dev-ssd-8T/shuqixiao/dev/projects/MonoGS/datasets/replica_semantic/room0/results_segmentation_labels/"
-    )
     if not os.path.isdir(dst_dir):
         os.makedirs(dst_dir, exist_ok=True)
     segmentation_label_paths = [
         os.path.join(dst_dir, os.path.splitext(file)[0] + ".pt") for file in filenames
     ]
 
-    num_classes = 100
     color_to_index = {}
 
     for i, file in tqdm(enumerate(file_paths)):

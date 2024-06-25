@@ -23,7 +23,7 @@ from utils.slam_frontend import FrontEnd
 
 
 class SLAM:
-    def __init__(self, config, save_dir=None):
+    def __init__(self, config, save_dir=None, group_id=None):
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
 
@@ -40,7 +40,13 @@ class SLAM:
             pipeline_params,
         )
 
-        self.live_mode = self.config["Dataset"]["type"] == "realsense"
+        if self.config["Dataset"]["type"] == "realsense":
+            self.live_mode = True
+        elif self.config["Training"]["live_mode"] is True:
+            self.live_mode = True
+        else:
+            self.live_mode = False
+
         self.monocular = self.config["Dataset"]["sensor_type"] == "monocular"
         self.semantic = self.config["Dataset"].get("semantic")
         if self.semantic:
@@ -75,7 +81,6 @@ class SLAM:
             )
         else:
             self.background_semantics = None
-
 
         frontend_queue = mp.Queue()
         backend_queue = mp.Queue()
@@ -126,18 +131,27 @@ class SLAM:
             q_main2vis=q_main2vis,
             q_vis2main=q_vis2main,
         )
-        backend_process = mp.Process(target=self.backend.run)
         if self.use_gui:
+            Log("Launch GUI process.", tag="Semantic-3DGS-SLAM")
             gui_process = mp.Process(
                 target=slam_gui.run,
                 args=(self.params_gui, self.gaussians.semantic_decoder),
             )
             gui_process.start()
+            Log("Sleep 5 seconds before GUI available.", tag="Semantic-3DGS-SLAM")
             time.sleep(5)
 
+        Log("Launch backend process.", tag="Semantic-3DGS-SLAM")
+        self.backend.group_id = group_id
+        backend_process = mp.Process(target=self.backend.run)
         backend_process.start()
+
+        Log("Launch frontend process (main process).", tag="Semantic-3DGS-SLAM")
         self.frontend.run()
+
+        Log("Frontend process is stopped.", tag="Semantic-3DGS-SLAM")
         backend_queue.put(["pause"])
+        Log("Backend process is notified to pause.", tag="Semantic-3DGS-SLAM")
 
         end.record()
         torch.cuda.synchronize()
@@ -184,6 +198,10 @@ class SLAM:
             # re-used the frontend queue to retrive the gaussians from the backend.
             while not frontend_queue.empty():
                 frontend_queue.get()
+            Log(
+                "Backend process is notified to do color refinement.",
+                tag="Semantic-3DGS-SLAM",
+            )
             backend_queue.put(["color_refinement"])
             while True:
                 if frontend_queue.empty():
@@ -271,16 +289,19 @@ if __name__ == "__main__":
         with open(os.path.join(save_dir, "config.yml"), "w") as file:
             documents = yaml.dump(config, file)
         Log("saving results in " + save_dir)
-        run = wandb.init(
+        group_id = wandb.util.generate_id()
+        Log(f"wandb group ID={group_id}", tag="Semantic-3DGS-SLAM")
+        wandb.init(
             project="Semantic-3DGS-SLAM",
-            name=f"{tmp}_{current_datetime}",
+            name="frontend",
+            group=group_id,
             config=config,
             mode=None if config["Results"]["use_wandb"] else "disabled",
         )
         wandb.define_metric("Frame Index")
         wandb.define_metric("Absolute Trajectory Error", step_metric="Frame Index")
 
-    slam = SLAM(config, save_dir=save_dir)
+    slam = SLAM(config, save_dir=save_dir, group_id=group_id)
 
     slam.run()
     wandb.finish()

@@ -3,7 +3,6 @@ import time
 
 import torch
 import torch.multiprocessing as mp
-from tqdm import tqdm
 
 from gaussian_splatting.gaussian_renderer import render, GaussianModel
 from gaussian_splatting.utils.loss_utils import l1_loss, ssim
@@ -11,7 +10,9 @@ from utils.logging_utils import Log
 from utils.multiprocessing_utils import clone_obj
 from utils.pose_utils import update_pose
 from utils.slam_utils import get_loss_mapping
-from utils.semantic_decoder import SemanticDecoder
+
+from tqdm import tqdm
+import wandb
 
 
 class BackEnd(mp.Process):
@@ -72,7 +73,7 @@ class BackEnd(mp.Process):
             camera, kf_id=frame_idx, init=init, scale=scale, depthmap=depth_map
         )
 
-    def reset(self):
+    def backend_initialization(self):
         self.iteration_count = 0
         self.occ_aware_visibility = {}
         self.viewpoints = {}
@@ -165,7 +166,7 @@ class BackEnd(mp.Process):
         Log("Initialized map")
         return render_pkg
 
-    def map(self, current_window, prune=False, iters=1):
+    def map(self, current_window, prune=False, iters=1, log=False):
         if len(current_window) == 0:
             return
 
@@ -218,18 +219,19 @@ class BackEnd(mp.Process):
                     render_pkg["opacity"],
                     render_pkg["n_touched"],
                 )
+
                 if self.gaussians.is_semantic:
                     semantics = render_pkg["semantics"]
-                    decoded_semantics = render_pkg["segmentation_logits"]
+                    segmentation_logits = render_pkg["segmentation_logits"]
                 else:
                     semantics = None
-                    decoded_semantics = None
+                    segmentation_logits = None
 
                 loss_mapping += get_loss_mapping(
                     config=self.config,
                     image=image,
                     semantics=semantics,
-                    segmentation_logits=decoded_semantics,
+                    segmentation_logits=segmentation_logits,
                     depth=depth,
                     viewpoint=viewpoint,
                     opacity=opacity,
@@ -268,16 +270,16 @@ class BackEnd(mp.Process):
                 )
                 if self.gaussians.is_semantic:
                     semantics = render_pkg["semantics"]
-                    decoded_semantics = render_pkg["segmentation_logits"]
+                    segmentation_logits = render_pkg["segmentation_logits"]
                 else:
                     semantics = None
-                    decoded_semantics = None
+                    segmentation_logits = None
 
                 loss_mapping += get_loss_mapping(
                     config=self.config,
                     image=image,
                     semantics=semantics,
-                    segmentation_logits=decoded_semantics,
+                    segmentation_logits=segmentation_logits,
                     depth=depth,
                     viewpoint=viewpoint,
                     opacity=opacity,
@@ -370,12 +372,27 @@ class BackEnd(mp.Process):
                 self.gaussians.update_learning_rate(self.iteration_count)
                 self.keyframe_optimizers.step()
                 self.keyframe_optimizers.zero_grad(set_to_none=True)
+
                 # Pose update
                 for cam_idx in range(min(frames_to_optimize, len(current_window))):
                     viewpoint = viewpoint_stack[cam_idx]
                     if viewpoint.uid == 0:
                         continue
                     update_pose(viewpoint)
+        if log:
+            try:
+                self.map_idx += 1
+                self.map_previous_timestamp = self.map_current_timestamp
+                self.map_current_timestamp = time.time()
+                fps = 1 / (self.map_current_timestamp - self.map_previous_timestamp)
+                Log(
+                    f"frame {self.map_idx}, fps {fps}",
+                    tag="Map",
+                )
+            except AttributeError:
+                self.map_idx = 0
+                self.map_previous_timestamp = self.map_current_timestamp = time.time()
+
         return gaussian_split
 
     def color_refinement(self):
@@ -430,6 +447,14 @@ class BackEnd(mp.Process):
         self.frontend_queue.put(msg)
 
     def run(self):
+        wandb.init(
+            project="Semantic-3DGS-SLAM",
+            name="backend",
+            group=self.group_id,
+            config=self.config,
+            mode=None if self.config["Results"]["use_wandb"] else "disabled",
+        )
+
         while True:
             if self.backend_queue.empty():
                 if self.pause:
@@ -438,7 +463,6 @@ class BackEnd(mp.Process):
                 if len(self.current_window) == 0:
                     time.sleep(0.01)
                     continue
-
                 if self.single_thread:
                     time.sleep(0.01)
                     continue
@@ -461,9 +485,8 @@ class BackEnd(mp.Process):
                     cur_frame_idx = data[1]
                     viewpoint = data[2]
                     depth_map = data[3]
-                    Log("Resetting the system")
-                    self.reset()
-
+                    Log("Resetting/Initializing the system", tag="Semantic-3DGS-SLAM")
+                    self.backend_initialization()
                     self.viewpoints[cur_frame_idx] = viewpoint
                     self.add_next_kf(
                         cur_frame_idx, viewpoint, depth_map=depth_map, init=True
@@ -484,7 +507,11 @@ class BackEnd(mp.Process):
                     opt_params = []
                     frames_to_optimize = self.config["Training"]["pose_window"]
                     iter_per_kf = self.mapping_itr_num if self.single_thread else 10
+
                     if not self.initialized:
+                        # TODO:
+                        # It seems that this snippet will never be executed
+                        # Why "self.initialized" can not be false?
                         if (
                             len(self.current_window)
                             == self.config["Training"]["window_size"]
@@ -496,6 +523,7 @@ class BackEnd(mp.Process):
                             Log("Performing initial BA for initialization")
                         else:
                             iter_per_kf = self.mapping_itr_num
+
                     for cam_idx in range(len(self.current_window)):
                         if self.current_window[cam_idx] == 0:
                             continue
