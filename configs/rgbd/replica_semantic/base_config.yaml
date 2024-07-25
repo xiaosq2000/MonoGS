@@ -42,7 +42,7 @@ Training:
   tracking_alpha: 0.90
   tracking_beta: 0.10
   tracking_gamma: 0
-  mapping_alpha: 0.88
+  mapping_alpha: 0.90
   mapping_beta: 0.10
   mapping_gamma: 0.02
   # >>> semantic >>>

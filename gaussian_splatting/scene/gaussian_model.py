@@ -558,9 +558,9 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
-    def reset_opacity_nonvisible(
-        self, visibility_filters
-    ):  ##Reset opacity for only non-visible gaussians
+    def reset_opacity_nonvisible(self, visibility_filters):
+        # TODO: Explain the trick
+        # Reset opacity for only non-visible gaussians
         opacities_new = inverse_sigmoid(torch.ones_like(self.get_opacity) * 0.4)
 
         for filter in visibility_filters:

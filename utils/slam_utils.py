@@ -252,7 +252,7 @@ def get_loss_mapping_semantic_rgbd(
     semantics,
     segmentation_logits,
     segmentation_uncertainty_mask=None,
-    log=True,
+    log=False,
 ):
     alpha = (
         config["Training"]["mapping_alpha"]
@@ -325,10 +325,10 @@ def get_loss_mapping_semantic_rgbd(
 def get_median_depth(depth, opacity=None, mask=None, return_std=False):
     depth = depth.detach().clone()
     opacity = opacity.detach()
-    # TODO: 
+    # TODO:
     # Compensate the noise from real-world depth estimates.
-    # Example: 
-    #   1. Depth Uncertainty Model 
+    # Example:
+    #   1. Depth Uncertainty Model
     #   2. A maximum threshold (the range of the ToF sensor...)
     valid = depth > 0
     if opacity is not None:

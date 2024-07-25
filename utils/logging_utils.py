@@ -6,7 +6,7 @@ _log_styles = {
     "Eval": "bold yellow",
     "Error": "bold red",
     "Map": "bold cyan",
-    "Track": "bold cyan",
+    "Track": "bold magenta",
 }
 
 

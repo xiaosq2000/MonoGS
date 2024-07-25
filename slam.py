@@ -23,7 +23,7 @@ from utils.slam_frontend import FrontEnd
 
 
 class SLAM:
-    def __init__(self, config, save_dir=None, group_id=None):
+    def __init__(self, config, save_dir=None, wandb_group_id=None):
         start = torch.cuda.Event(enable_timing=True)
         end = torch.cuda.Event(enable_timing=True)
 
@@ -47,27 +47,43 @@ class SLAM:
         else:
             self.live_mode = False
 
-        self.monocular = self.config["Dataset"]["sensor_type"] == "monocular"
-        self.semantic = self.config["Dataset"].get("semantic")
-        if self.semantic:
-            self.semantic_embedding_dim = (
-                self.config["Training"]["semantic_embedding_dim"],
-            )
-        if self.semantic is None:
-            self.semantic = False
-        self.use_spherical_harmonics = self.config["Training"]["spherical_harmonics"]
         self.use_gui = self.config["Results"]["use_gui"]
         if self.live_mode:
             self.use_gui = True
+
+        self.monocular = self.config["Dataset"]["sensor_type"] == "monocular"
+        if self.monocular:
+            Log("Depth is unavaiable.")
+        else:
+            Log("Depth is avaiable.")
+
+        self.semantic = self.config["Dataset"].get("semantic")
+        if self.semantic is None:
+            self.semantic = False
+
+        if self.semantic:
+            self.semantic_embedding_dim = self.config["Training"][
+                "semantic_embedding_dim"
+            ]
+            Log(
+                f"Semantics is avaiable and embedding dimension is {self.semantic_embedding_dim}."
+            )
+        else:
+            Log("Semantics is unavaiable.")
+
+        self.use_spherical_harmonics = self.config["Training"]["spherical_harmonics"]
         self.eval_rendering = self.config["Results"]["eval_rendering"]
 
         model_params.sh_degree = 3 if self.use_spherical_harmonics else 0
 
         self.gaussians = GaussianModel(model_params.sh_degree, config=self.config)
+        # TODO: A magic initial learning rate here?
         self.gaussians.init_lr(6.0)
+
         self.dataset = load_dataset(
             model_params, model_params.source_path, config=config
         )
+        Log(f"Load {type(self.dataset)} with {self.dataset.num_imgs} frames.")
 
         self.gaussians.training_setup(opt_params)
         bg_color = [0, 0, 0]
@@ -101,6 +117,7 @@ class SLAM:
             self.frontend.background_semantics = self.background_semantics
         else:
             self.frontend.background_semantics = None
+
         self.frontend.pipeline_params = self.pipeline_params
         self.frontend.frontend_queue = frontend_queue
         self.frontend.backend_queue = backend_queue
@@ -138,11 +155,11 @@ class SLAM:
                 args=(self.params_gui, self.gaussians.semantic_decoder),
             )
             gui_process.start()
-            Log("Sleep 5 seconds before GUI available.", tag="Semantic-3DGS-SLAM")
-            time.sleep(5)
+            Log("Sleep 10 seconds before GUI available.", tag="Semantic-3DGS-SLAM")
+            time.sleep(10)
 
         Log("Launch backend process.", tag="Semantic-3DGS-SLAM")
-        self.backend.group_id = group_id
+        self.backend.wandb_group_id = wandb_group_id
         backend_process = mp.Process(target=self.backend.run)
         backend_process.start()
 
@@ -288,20 +305,30 @@ if __name__ == "__main__":
         mkdir_p(save_dir)
         with open(os.path.join(save_dir, "config.yml"), "w") as file:
             documents = yaml.dump(config, file)
-        Log("saving results in " + save_dir)
-        group_id = wandb.util.generate_id()
-        Log(f"wandb group ID={group_id}", tag="Semantic-3DGS-SLAM")
-        wandb.init(
-            project="Semantic-3DGS-SLAM",
-            name="frontend",
-            group=group_id,
-            config=config,
-            mode=None if config["Results"]["use_wandb"] else "disabled",
-        )
-        wandb.define_metric("Frame Index")
-        wandb.define_metric("Absolute Trajectory Error", step_metric="Frame Index")
+        Log("Results will be saved in " + save_dir)
 
-    slam = SLAM(config, save_dir=save_dir, group_id=group_id)
+    current_datetime = datetime.now().strftime("%Y%m%d")
+    wandb_group_id = current_datetime + "-" + wandb.util.generate_id()
+    Log(
+        f"ID, {wandb_group_id}",
+        tag="Semantic-3DGS-SLAM",
+    )
+    if config["Results"]["use_wandb"]:
+        Log("Initialize wandb for frontend process.")
+    wandb.init(
+        project="Semantic-3DGS-SLAM",
+        name="frontend",
+        group=wandb_group_id,
+        config=config,
+        mode=None if config["Results"]["use_wandb"] else "disabled",
+    )
+    wandb.define_metric("Frame Index")
+    wandb.define_metric("Absolute Trajectory Error", step_metric="Frame Index")
+    slam = SLAM(
+        config,
+        save_dir=save_dir,
+        wandb_group_id=wandb_group_id if config["Results"]["use_wandb"] else None,
+    )
 
     slam.run()
     wandb.finish()

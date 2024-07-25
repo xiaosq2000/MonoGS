@@ -66,6 +66,7 @@ def evaluate_evo(poses_gt, poses_est, plot_dir, label, monocular=False):
 
 def eval_ate(frames, kf_ids, save_dir, iterations, final=False, monocular=False):
     trj_data = dict()
+    Log(f"{len(kf_ids)}")
     latest_frame_idx = kf_ids[-1] + 2 if final else kf_ids[-1] + 1
     trj_id, trj_est, trj_gt = [], [], []
     trj_est_np, trj_gt_np = [], []

@@ -42,6 +42,8 @@ class BackEnd(mp.Process):
         self.initialized = not self.monocular
         self.keyframe_optimizers = None
 
+        self.wandb_group_id = None
+
     def set_hyperparams(self):
         self.save_results = self.config["Results"]["save_results"]
 
@@ -163,16 +165,18 @@ class BackEnd(mp.Process):
                 self.gaussians.optimizer.zero_grad(set_to_none=True)
 
         self.occ_aware_visibility[cur_frame_idx] = (n_touched > 0).long()
-        Log("Initialized map")
         return render_pkg
 
     def map(self, current_window, prune=False, iters=1, log=False):
+        if log:
+            map_start_timestamp = time.time()
+
         if len(current_window) == 0:
             return
 
         viewpoint_stack = [self.viewpoints[kf_idx] for kf_idx in current_window]
         random_viewpoint_stack = []
-        frames_to_optimize = self.config["Training"]["pose_window"]
+        frames_to_optimize_pose = self.config["Training"]["pose_window"]
 
         current_window_set = set(current_window)
         for cam_idx, viewpoint in self.viewpoints.items():
@@ -242,6 +246,7 @@ class BackEnd(mp.Process):
                 radii_acm.append(radii)
                 n_touched_acm.append(n_touched)
 
+            # Random recall to avoid forgetting the global map.
             for cam_idx in torch.randperm(len(random_viewpoint_stack))[:2]:
                 viewpoint = random_viewpoint_stack[cam_idx]
                 render_pkg = render(
@@ -292,9 +297,11 @@ class BackEnd(mp.Process):
             scaling = self.gaussians.get_scaling
             isotropic_loss = torch.abs(scaling - scaling.mean(dim=1).view(-1, 1))
             loss_mapping += 10 * isotropic_loss.mean()
+
             loss_mapping.backward()
             gaussian_split = False
-            ## Deinsifying / Pruning Gaussians
+
+            ## Densifying / Pruning Gaussians
             with torch.no_grad():
                 self.occ_aware_visibility = {}
                 for idx in range((len(current_window))):
@@ -324,7 +331,7 @@ class BackEnd(mp.Process):
                             to_prune = torch.logical_and(
                                 self.gaussians.n_obs <= prune_coviz, mask
                             )
-                        if to_prune is not None and self.monocular:
+                        if to_prune is not None:
                             self.gaussians.prune_points(to_prune.cuda())
                             for idx in range((len(current_window))):
                                 current_idx = current_window[idx]
@@ -363,7 +370,7 @@ class BackEnd(mp.Process):
                 if (self.iteration_count % self.gaussian_reset) == 0 and (
                     not update_gaussian
                 ):
-                    Log("Resetting the opacity of non-visible Gaussians")
+                    Log("Resetting the opacity of non-visible Gaussians", tag="Map")
                     self.gaussians.reset_opacity_nonvisible(visibility_filter_acm)
                     gaussian_split = True
 
@@ -373,25 +380,19 @@ class BackEnd(mp.Process):
                 self.keyframe_optimizers.step()
                 self.keyframe_optimizers.zero_grad(set_to_none=True)
 
-                # Pose update
-                for cam_idx in range(min(frames_to_optimize, len(current_window))):
+                # pose update
+                # TODO: pose window is not sliding window
+                for cam_idx in range(min(frames_to_optimize_pose, len(current_window))):
                     viewpoint = viewpoint_stack[cam_idx]
                     if viewpoint.uid == 0:
                         continue
                     update_pose(viewpoint)
         if log:
-            try:
-                self.map_idx += 1
-                self.map_previous_timestamp = self.map_current_timestamp
-                self.map_current_timestamp = time.time()
-                fps = 1 / (self.map_current_timestamp - self.map_previous_timestamp)
-                Log(
-                    f"frame {self.map_idx}, fps {fps}",
-                    tag="Map",
-                )
-            except AttributeError:
-                self.map_idx = 0
-                self.map_previous_timestamp = self.map_current_timestamp = time.time()
+            map_end_timestamp = time.time()
+            Log(
+                f"{1/(map_end_timestamp - map_start_timestamp):.3f} fps, {self.gaussians.get_xyz.shape[0]} Gaussians, iteration {iters} times, {len(current_window)}/{self.window_size} keyframes",
+                tag="Map",
+            )
 
         return gaussian_split
 
@@ -447,10 +448,12 @@ class BackEnd(mp.Process):
         self.frontend_queue.put(msg)
 
     def run(self):
+        if self.config["Results"]["use_wandb"]:
+            Log("Initialize wandb for backend process.")
         wandb.init(
             project="Semantic-3DGS-SLAM",
             name="backend",
-            group=self.group_id,
+            group=self.wandb_group_id,
             config=self.config,
             mode=None if self.config["Results"]["use_wandb"] else "disabled",
         )
@@ -463,12 +466,16 @@ class BackEnd(mp.Process):
                 if len(self.current_window) == 0:
                     time.sleep(0.01)
                     continue
+
                 if self.single_thread:
+                    # If self.single_thread is true,
+                    # the backend process only reacts for events.
                     time.sleep(0.01)
                     continue
-                self.map(self.current_window)
+
+                self.map(self.current_window, prune=False, iters=1, log=True)
                 if self.last_sent >= 10:
-                    self.map(self.current_window, prune=True, iters=10)
+                    self.map(self.current_window, prune=True, iters=10, log=True)
                     self.push_to_frontend()
             else:
                 data = self.backend_queue.get()
@@ -485,13 +492,22 @@ class BackEnd(mp.Process):
                     cur_frame_idx = data[1]
                     viewpoint = data[2]
                     depth_map = data[3]
-                    Log("Resetting/Initializing the system", tag="Semantic-3DGS-SLAM")
                     self.backend_initialization()
                     self.viewpoints[cur_frame_idx] = viewpoint
                     self.add_next_kf(
                         cur_frame_idx, viewpoint, depth_map=depth_map, init=True
                     )
+                    Log(
+                        "Initializing",
+                        tag="Map",
+                    )
+                    to_initialize_map_timestamp = time.time()
                     self.initialize_map(cur_frame_idx, viewpoint)
+                    initialized_map_timestamp = time.time()
+                    Log(
+                        f"Initialized ({(initialized_map_timestamp-to_initialize_map_timestamp):.3f} seconds)",
+                        tag="Map",
+                    )
                     self.push_to_frontend("init")
 
                 elif data[0] == "keyframe":
@@ -507,11 +523,10 @@ class BackEnd(mp.Process):
                     opt_params = []
                     frames_to_optimize = self.config["Training"]["pose_window"]
                     iter_per_kf = self.mapping_itr_num if self.single_thread else 10
+                    window_size = self.config["Training"]["window_size"]
 
                     if not self.initialized:
-                        # TODO:
-                        # It seems that this snippet will never be executed
-                        # Why "self.initialized" can not be false?
+                        # Note that self.initialized is always true when depth available,
                         if (
                             len(self.current_window)
                             == self.config["Training"]["window_size"]
@@ -563,8 +578,9 @@ class BackEnd(mp.Process):
                         )
                     self.keyframe_optimizers = torch.optim.Adam(opt_params)
 
-                    self.map(self.current_window, iters=iter_per_kf)
-                    self.map(self.current_window, prune=True)
+                    self.map(self.current_window, iters=iter_per_kf, log=True)
+                    if self.monocular:
+                        self.map(self.current_window, prune=True)
                     self.push_to_frontend("keyframe")
                 else:
                     raise Exception("Unprocessed data", data)

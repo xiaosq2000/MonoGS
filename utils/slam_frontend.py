@@ -129,6 +129,8 @@ class FrontEnd(mp.Process):
         self.reset = False
 
     def tracking(self, cur_frame_idx, viewpoint, log=False):
+        if log:
+            tracking_previous_timestamp = time.time()
         prev = self.cameras[cur_frame_idx - self.use_every_n_frames]
         viewpoint.update_RT(prev.R, prev.T)
 
@@ -219,32 +221,22 @@ class FrontEnd(mp.Process):
                             ),
                         )
                     )
+
             if log:
-                if converged:
-                    Log(f"converged after {tracking_itr} iterations.", tag="Track")
-                    break
+                tracking_current_timestamp = time.time()
                 if tracking_itr == (self.tracking_itr_num - 1):
-                    Log("tracking is not converged.", tag="Error")
-            else:
+                    Log("Tracking is not converged.", tag="Error")
                 if converged:
+                    Log(
+                        f"frame {cur_frame_idx}, {1.0/(tracking_current_timestamp-tracking_previous_timestamp):.2f} fps, {tracking_itr} iterations.",
+                        tag="Track",
+                    )
                     break
 
+            if converged:
+                break
+
         self.median_depth = get_median_depth(depth, opacity)
-        if log:
-            try:
-                self.track_idx += 1
-                self.track_previous_timestamp = self.track_current_timestamp
-                self.track_current_timestamp = time.time()
-                fps = 1 / (self.track_current_timestamp - self.track_previous_timestamp)
-                Log(
-                    f"frame {self.track_idx}, fps {fps}",
-                    tag="Track",
-                )
-            except AttributeError:
-                self.track_idx = 0
-                self.track_previous_timestamp = self.track_current_timestamp = (
-                    time.time()
-                )
         return render_pkg
 
     def is_keyframe(
@@ -362,6 +354,7 @@ class FrontEnd(mp.Process):
     def cleanup(self, cur_frame_idx):
         self.cameras[cur_frame_idx].clean()
         if cur_frame_idx % 10 == 0:
+            # TODO: why?
             torch.cuda.empty_cache()
 
     def run(self):
@@ -417,6 +410,8 @@ class FrontEnd(mp.Process):
                     continue
 
                 if self.single_thread and self.requested_keyframe > 0:
+                    # The frontend process just requseted a keyframe from backend.
+                    # Waiting for the optimized keyframe.
                     time.sleep(0.01)
                     continue
 
@@ -446,7 +441,7 @@ class FrontEnd(mp.Process):
                 # Only when `requested_init' is set false by the backend, the tracking command can be executed.
                 # This is ensured by lots of 'continue's in the main loop.
                 # In other word, we have an initial Gaussian map now and we can track camera poses.
-                render_pkg = self.tracking(cur_frame_idx, viewpoint)
+                render_pkg = self.tracking(cur_frame_idx, viewpoint, log=True)
 
                 current_window_dict = {}
                 current_window_dict[self.current_window[0]] = self.current_window[1:]
@@ -461,11 +456,15 @@ class FrontEnd(mp.Process):
                     )
                 )
 
+                # even for multiprocessing,
+                # after tracking and visualization, wait for the new keyframe.
                 if self.requested_keyframe > 0:
                     self.cleanup(cur_frame_idx)
                     cur_frame_idx += 1
                     continue
 
+                # keyframe selection
+                # TODO: why not put the following into `is_keyframe()'
                 last_keyframe_idx = self.current_window[0]
                 check_time = (cur_frame_idx - last_keyframe_idx) >= self.kf_interval
                 curr_visibility = (render_pkg["n_touched"] > 0).long()
@@ -514,6 +513,7 @@ class FrontEnd(mp.Process):
                     )
                 else:
                     self.cleanup(cur_frame_idx)
+
                 cur_frame_idx += 1
 
                 if (
@@ -530,10 +530,14 @@ class FrontEnd(mp.Process):
                         cur_frame_idx,
                         monocular=self.monocular,
                     )
+
                 toc.record()
                 torch.cuda.synchronize()
+
                 if create_kf:
-                    # throttle at 3fps when keyframe is added
+                    # throttle at 3fps when keyframe is added.
+                    # why? because 3fps is an estimated speed for backend.
+                    # we don't need to waste resources to check if optimized keyframe is ready.
                     duration = tic.elapsed_time(toc)
                     time.sleep(max(0.01, 1.0 / 3.0 - duration / 1000))
             else:
